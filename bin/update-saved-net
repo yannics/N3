@@ -1,0 +1,28 @@
+#!/bin/bash
+
+dir=$(dirname $1)
+
+# reduce-saved-file
+cat $1 | sed 's/  */\ /g' > $dir/.tmp.lisp
+cat $dir/.tmp.lisp | tr "\\n" " " | sed 's/  /\ /g' > $1
+rm $dir/.tmp.lisp
+
+# add-icon
+dirscript="$( cd -P "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
+$dirscript/add-icns/SetCustomIcon $1 $dirscript/add-icns/N3.icns
+
+# ---
+filename=$(basename $1)
+ext="${filename##*.}"
+if [[ "tree" = "$ext" ]]; then
+    # add-empty-folder
+    name=`basename $1 | perl -pe 's/(.*)\..*$/$1/;s{^.*/}{}'`
+    if [ ! -d $dir/$name ]; then mkdir $dir/$name
+    fi
+    nn=`basename $dir`
+    mv $1 $dir/$name/$nn.tree
+fi
+
+# TODO
+# add-icon on LINUX

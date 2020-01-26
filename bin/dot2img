@@ -1,0 +1,42 @@
+#!/bin/bash
+
+dir=$(dirname $1)
+
+# to change image format ... (to check format available enter in shell: dot -Txxx)
+img=png
+
+fullfilename=$(basename $1)
+rootname=$(echo "$fullfilename" |cut -f1 -d '.')
+
+if [ ! -d $dir/$rootname ]; then mkdir $dir/$rootname
+fi
+
+if [ ! -d $dir/$rootname/img ]; then mkdir $dir/$rootname/img
+fi
+
+nimg=10000
+# number of maximum stored images = nimg * 10 - 1
+
+if [ -e $dir/$rootname/img/$rootname#$nimg.$img ]
+then 
+    for file in `ls $dir/$rootname/img/$rootname*.$img`
+    do
+	echo $file > tmp.txt
+    done
+    
+    fl=`cat tmp.txt`
+    ff=$(basename $fl)
+    rn=$(echo "$ff" |cut -f1 -d '.')
+    nn=`echo $rn | cut -d '#' -f2`  
+    nn=$[$nn+1]
+    imgfile=$dir/$rootname/img/$rootname#$nn.$img
+    rm tmp.txt
+    
+else 
+    imgfile=$dir/$rootname/img/$rootname#$nimg.$img
+fi
+
+$2 -T$img $1 > $imgfile
+$3 $imgfile
+
+rm $1

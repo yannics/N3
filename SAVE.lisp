@@ -1,0 +1,134 @@
+;; NEUROMUSE3
+;;------------------------------------------------------------------
+
+(in-package :N3)
+
+;------------------------------------------------------------------
+;                                                              SAVE
+
+(defgeneric save (self))
+
+(defun get-slots (object)
+  #+sbcl(mapcar #'sb-pcl:slot-definition-name (sb-pcl:class-slots (class-of object)))
+  #+openmcl(mapcar #'ccl:slot-definition-name (ccl:class-slots (class-of object))))
+
+(defmethod save ((self som))
+  (let* ((scriptpath (format nil "~Abin/update-saved-net" *NEUROMUSE3-DIRECTORY*))
+	 (path (format nil "~A~A.som" *N3-BACKUP-DIRECTORY* (name self))))
+    (progn
+      (let ((slots-som (get-slots self))
+	    (slots-neuron (get-slots (id (car (neurons-list self))))))
+	(with-open-file (stream path
+				:direction :output
+				:if-exists :supersede
+				:if-does-not-exist :create)
+	  (if (mlt-p self)
+	      (format stream "(PUSH (MAKE-INSTANCE (QUOTE N3::MLT)")
+	      (format stream "(PUSH (MAKE-INSTANCE (QUOTE N3::SOM)"))
+	  (loop for s in slots-som do
+	       (let ((val (funcall s self)))
+		 (if (eq s (read-from-string "NEURONS-LIST")) 
+		     (progn (format stream " :NEURONS-LIST (LIST")
+			    (loop for nl in (neurons-list self) do
+				 (format stream " (MAKE-INSTANCE (QUOTE N3::NEURON)")
+				 (loop for n in slots-neuron do
+				      (let ((val-n (funcall n nl)))
+					(format stream " :~S (QUOTE ~S)" n val-n)))
+				 (format stream ")"))
+			    (format stream ")"))
+		     (cond ((hash-table-p val) (format stream " :~S (MAKE-HASH-TABLE :TEST #'EQUALP)" s))
+			   ((functionp val) 
+			    (let ((mvl (multiple-value-list (function-lambda-expression val))))
+			      (cond
+				((and (eq 'LAMBDA (caar mvl)) (not (listp (car (last mvl))))) (format stream " :~S #'~S" s (car (last mvl))))
+				((and (eq 'LAMBDA (caar mvl)) (eq 'LAMBDA (caar (last mvl)))) (format stream " :~S #'~S" s (car mvl)))
+				(t (format stream " :~S #'~S" s (car (last mvl)))))))
+			   (t (format stream " :~S (QUOTE ~S)" s val))))))
+	  (format stream ") N3::*AVAILABLE-SOM*)")
+	  (format stream "(DEFVAR ~S (SYMBOL-VALUE ~S))" (name self) self)
+	  (maphash (lambda (k v) (format stream "(SETF (GETHASH (QUOTE ~S) (ONSET ~S)) ~S) " k (name self) v)) (onset self))
+	  (maphash (lambda (k v) (format stream "(SETF (GETHASH (QUOTE ~S) (FINE ~S)) ~S) " k (name self) v)) (fine self))
+	  (maphash (lambda (k v) (format stream "(SETF (GETHASH (QUOTE ~S) (TRNS ~S)) ~S) " k (name self) v)) (trns self))
+	  (maphash (lambda (k v) (format stream "(SETF (GETHASH (QUOTE ~S) (ARCS ~S)) ~S) " k (name self) v)) (arcs self))
+	  (maphash (lambda (k v) (format stream "(SETF (GETHASH (QUOTE ~S) (DATE-REPORT ~S)) ~S) " k (name self) v)) (date-report self))))
+      (UIOP:run-program (format nil "sh -c '~S ~S'" scriptpath path)))))
+
+(defmethod save ((self area))
+  (let* ((scriptpath (format nil "~Abin/update-saved-net" *NEUROMUSE3-DIRECTORY*))
+	 (path (format nil "~A~A.area" *N3-BACKUP-DIRECTORY* (name self))))
+    (progn
+      (loop for i in (soms-list self) do (save (id i)))
+      (let ((slots-som (get-slots self)))
+	(with-open-file (stream path
+				:direction :output
+				:if-exists :supersede
+				:if-does-not-exist :create)
+	  (format stream "(PUSH (MAKE-INSTANCE (QUOTE N3::AREA)")
+	  (loop for s in slots-som do
+	       (let ((val (funcall s self)))
+		 (if (hash-table-p val)
+			 (format stream " :~S (MAKE-HASH-TABLE :TEST #'EQUALP)" s)	   
+			 (format stream " :~S (QUOTE ~S)" s val))))
+	  (format stream ") N3::*AVAILABLE-AREA*)")
+	  (format stream "(DEFVAR ~S (SYMBOL-VALUE ~S))" (name self) self)
+	  (maphash (lambda (k v) (format stream "(SETF (GETHASH (QUOTE ~S) (ARCS ~S)) ~S) " k self v)) (arcs self))
+	  (maphash (lambda (k v) (format stream "(SETF (GETHASH (QUOTE ~S) (DATE-REPORT ~S)) ~S) " k (name self) v)) (date-report self))))
+      (UIOP:run-program (format nil "sh -c '~S ~S'" scriptpath path)))))
+
+;------------------------------------------------------------------
+;                                               LOAD-NEURAL-NETWORK
+
+(defun all-pos (item lst)
+  (loop for i in lst and position from 0
+        when (equalp item i)
+        collect position))
+
+(defun bound-test (symbol)
+  (if (boundp symbol) (symbol-value symbol) symbol))
+
+(defun load-neural-network (nn &key only-area)
+  "nn is a string meaning neural network.
+   Just write full pathname of nn
+   [for instance /User/.../FOO.area as string];
+   or if the path of the instance is in *N3-BACKUP-DIRECTORY*,
+   just write the name of the instance."
+  (let ((file (if (zerop (length (directory-namestring (pathname nn))))
+		  (let ((tmpfile (format nil "~A~A.som" *N3-BACKUP-DIRECTORY* nn)))
+		    (if (open tmpfile :if-does-not-exist nil)
+			tmpfile
+			(format nil "~A~A.area" *N3-BACKUP-DIRECTORY* nn)))
+		  nn))) 
+    (if (open file :if-does-not-exist nil)
+	(let ((tn (pathname-type (pathname file)))
+	      (nn (pathname-name (pathname file))))	
+	  (cond ((equalp tn "som") (if (member (bound-test (read-from-string nn)) *AVAILABLE-SOM* :test #'equalp)
+				       (warn "There is already a SOM called ~A in *AVAILABLE-SOM*. Consequently, this SOM has not been loaded." nn)
+				       (progn (load file)
+					      (format t "~45<~A.~(~a~) ...~;... loaded ...~>~%" nn tn))))
+		((equalp tn "area") (if only-area
+					(if (member (bound-test (read-from-string nn)) *AVAILABLE-AREA* :test #'equalp)
+					    (warn "There is already an AREA called ~A in *AVAILABLE-AREA*. Consequently, this AREA has not been loaded." nn)
+					    (progn (load file)
+						   (format t "~45<~A.~(~a~) ...~;... loaded ...~>~%" nn tn)))
+					(let* ((sl (let* ((in (open file))
+							  (out (format nil "~a~%" (read-line in)))) 
+						     (read-from-string (remove #\' (format nil "~S" (nth 5 (cadr (read-from-string out))))))))
+					       (dir (directory-namestring (pathname file)))
+					       (il (let* ((in (open file))
+							  (out (format nil "~a~%" (read-line in)))) 
+						     (read-from-string (remove #\' (format nil "~S" (nth 7 (cadr (read-from-string out))))))))
+					       (lstest (all-pos nil (loop for i in sl collect (if (open (format nil "~A~S.som" dir i) :if-does-not-exist nil) t nil)))))
+					  (if (null lstest)
+					      (progn
+						(loop for s in sl do (load-neural-network (format nil "~A~S.som" dir s)))
+						(if (equalp (loop for l in il collect (if (null l) 0 l)) (loop for s in sl collect (length (fanaux-list (id s)))))
+						    (if (member (bound-test (read-from-string nn)) *AVAILABLE-AREA* :test #'equalp)
+							(warn "There is already an AREA called ~A in *AVAILABLE-AREA*. Consequently, this AREA has not been loaded." nn)
+							(progn (load file)
+							       (format t "~45<~A.~(~a~) ...~;... loaded ...~>~%" nn tn)))
+						    (warn "There is no agreement between the fanaux-list of soms-list and the fanaux-length. This AREA can't be loaded.")))
+					      (warn "The file~A~{ ~A.som~} do~A not exist [at least in \"~A\"]. Consequently, this AREA can't be loaded." (if (= 1 (length lstest)) "" "s") (loop for i in lstest collect (nth i sl)) (if (= 1 (length lstest)) "es" "") (read-from-string dir)))))) 
+		(t (warn "This file is not identified as part of N3."))))
+	(warn "This file does not exist."))))
+
+;------------------------------------------------------------------
