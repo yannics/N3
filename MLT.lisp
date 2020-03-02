@@ -23,7 +23,9 @@
    (trns
     :initform (make-hash-table :test #'equalp) :initarg :trns :accessor trns)
    (arcs
-    :initform (make-hash-table :test #'equalp) :initarg :arcs :accessor arcs)))
+    :initform (make-hash-table :test #'equalp) :initarg :arcs :accessor arcs)
+   (mem-cache
+    :initform nil :initarg :mem-cache :accessor mem-cache)))
 
 (defgeneric mlt-p (self))
 (defmethod mlt-p ((self mlt)) t)
@@ -284,11 +286,6 @@ The key :test manages the weights as a mean value by default."))
 (defun last-n (lst n)
   (subseq lst (max 0 (- (length lst) n))))
 
-(defun mean (xlst &optional wlst)
-  (if wlst
-      (float (/ (apply #'+ (mapcar #'* xlst wlst)) (apply #'+ wlst)))
-      (float (/ (apply #'+ xlst) (length xlst)))))
-
 (defmethod get-weight ((self mlt) (chain-list list) &key (remanence t) (test #'mean))  ;; chain-list = result of locate-tournoi
   (if remanence
       (loop for i in chain-list collect (gethash i (trns self)))
@@ -327,27 +324,25 @@ The key :test manages the weights as a mean value by default."))
 as arcs forming the clique when self is AREA, then a = clique = LIST and b = position = INTEGER;
 as arcs forming the tournoi when self is MLT, then a = tournoi = T (as integer) and b = sensorial-rate = NUMBER."))
 
-(defvar *onset* nil)
-
 (defgeneric set-all-zeros (self &key mode))
 (defmethod set-all-zeros ((self mlt) &key mode)
   (setf (input self) (make-list (nbre-input self) :initial-element 0))
   (case mode
-    (:onset (setf *onset* (list t)))
+    (:onset (setf (mem-cache self) (list t)))
     (:fine (update-ht (fine self) (mct self) (if (net self) (sensorial-rate (id (net self))) 1))
 	   (let ((lst (cons nil (mct self))))
 	     (setf (mct self) (if (<= (length lst) (cover-value self)) lst (butlast lst)))))
-    (otherwise (warn "The keyword should be set to :onset or :fine."))))
+    (otherwise (warn "The keyword should be set to :onset or :fine"))))
 
 (defun split-mct (mct)
   (loop for i in mct until (null i) collect i))
 
 (defmethod add-edge ((self mlt) (node integer) (sr number))
-  (when *onset*
-    (setf *onset* (push node *onset*))
-    (when (> (length *onset*) (cover-value self))
-      (update-ht (onset self) (butlast *onset*) (if (net self) (sensorial-rate (id (net self))) 1))
-      (setf *onset* nil))) 
+  (when (mem-cache self)
+    (setf (mem-cache self) (push node (mem-cache self)))
+    (when (> (length (mem-cache self)) (cover-value self))
+      (update-ht (onset self) (butlast (mem-cache self)) (if (net self) (sensorial-rate (id (net self))) 1))
+      (setf (mem-cache self) nil))) 
   (let* ((lst (cons node (mct self)))
 	 (trn (if (<= (length lst) (cover-value self)) lst (butlast lst)))
 	 (smct (split-mct trn)))

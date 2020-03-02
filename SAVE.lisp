@@ -8,13 +8,14 @@
 
 (defgeneric save (self))
 
+(defvar *UPDATE-SAVED-NET* (concatenate 'string *NEUROMUSE3-DIRECTORY* "bin/update-saved-net"))
+
 (defun get-slots (object)
   #+sbcl(mapcar #'sb-pcl:slot-definition-name (sb-pcl:class-slots (class-of object)))
   #+openmcl(mapcar #'ccl:slot-definition-name (ccl:class-slots (class-of object))))
 
 (defmethod save ((self som))
-  (let* ((scriptpath (format nil "~Abin/update-saved-net" *NEUROMUSE3-DIRECTORY*))
-	 (path (format nil "~A~A.som" *N3-BACKUP-DIRECTORY* (name self))))
+  (let ((path (format nil "~A~A.som" *N3-BACKUP-DIRECTORY* (name self))))
     (progn
       (let ((slots-som (get-slots self))
 	    (slots-neuron (get-slots (id (car (neurons-list self))))))
@@ -51,11 +52,10 @@
 	  (maphash (lambda (k v) (format stream "(SETF (GETHASH (QUOTE ~S) (TRNS ~S)) ~S) " k (name self) v)) (trns self))
 	  (maphash (lambda (k v) (format stream "(SETF (GETHASH (QUOTE ~S) (ARCS ~S)) ~S) " k (name self) v)) (arcs self))
 	  (maphash (lambda (k v) (format stream "(SETF (GETHASH (QUOTE ~S) (DATE-REPORT ~S)) ~S) " k (name self) v)) (date-report self))))
-      (UIOP:run-program (format nil "sh -c '~S ~S'" scriptpath path)))))
+      (UIOP:run-program (format nil "sh -c '~S ~S'" *UPDATE-SAVED-NET* path)))))
 
 (defmethod save ((self area))
-  (let* ((scriptpath (format nil "~Abin/update-saved-net" *NEUROMUSE3-DIRECTORY*))
-	 (path (format nil "~A~A.area" *N3-BACKUP-DIRECTORY* (name self))))
+  (let ((path (format nil "~A~A.area" *N3-BACKUP-DIRECTORY* (name self))))
     (progn
       (loop for i in (soms-list self) do (save (id i)))
       (let ((slots-som (get-slots self)))
@@ -73,7 +73,7 @@
 	  (format stream "(DEFVAR ~S (SYMBOL-VALUE ~S))" (name self) self)
 	  (maphash (lambda (k v) (format stream "(SETF (GETHASH (QUOTE ~S) (ARCS ~S)) ~S) " k self v)) (arcs self))
 	  (maphash (lambda (k v) (format stream "(SETF (GETHASH (QUOTE ~S) (DATE-REPORT ~S)) ~S) " k (name self) v)) (date-report self))))
-      (UIOP:run-program (format nil "sh -c '~S ~S'" scriptpath path)))))
+      (UIOP:run-program (format nil "sh -c '~S ~S'" *UPDATE-SAVED-NET* path)))))
 
 ;------------------------------------------------------------------
 ;                                               LOAD-NEURAL-NETWORK

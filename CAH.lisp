@@ -20,9 +20,6 @@
 (defmethod roundd ((in list) (n integer))
   (loop for i in in collect (roundd i n)))
 
-(defun mat-trans (lst)
-  (apply #'mapcar #'list lst))
-
 (defun read-value-by (value)
   (read-from-string (remove-if #'(lambda (x) (equalp x #\+)) (prin1-to-string value))))
 
@@ -100,6 +97,19 @@
 		(rec self trim)))))
   ;; output leaves list
   *memcache1*)
+#|
+#+sbcl
+; in: DEFMETHOD GET-LEAVES (NODE)
+;     (N3::REC N3::SELF N3::TRIM)
+; ==>
+;   N3::SELF
+; 
+; note: deleting unreachable code
+; 
+; note: deleting unreachable code
+#+openmcl
+|#
+
 
 (defmethod tree>nw ((self node) &key with-label (as-root t))
   "Display as a newick structure the <self> node."
@@ -164,8 +174,7 @@
 		    res))))))
 
 (defmethod save ((self node))
-  (let* ((scriptpath (format nil "~Abin/update-saved-net" *NEUROMUSE3-DIRECTORY*))
-	 (path (format nil "~A~A/~A~A~A.tree" *N3-BACKUP-DIRECTORY* (car (node-data self)) (cadr (node-data self)) (node-label self) (epoch (id (car (node-data self)))))))
+  (let ((path (format nil "~A~A/~A~A~A.tree" *N3-BACKUP-DIRECTORY* (car (node-data self)) (cadr (node-data self)) (node-label self) (epoch (id (car (node-data self)))))))
     (ensure-directories-exist (format nil "~A~A/" *N3-BACKUP-DIRECTORY* (car (node-data self))))
     (unless (mlt-p (id (car (node-data self)))) (save (id (car (node-data self)))))
     (progn
@@ -173,7 +182,6 @@
 			      :direction :output
 			      :if-exists :supersede
 			      :if-does-not-exist :create)
-	(format stream "(IN-PACKAGE :N3) ")
 	;-----------------------
 	(loop for n in (remove-duplicates (flatten (mapcar #'car (history self))) :test #'equalp)
 	   do
@@ -201,7 +209,7 @@
 	;-----------------------
 	(format stream "(SETF *TREE* ~S) " self)
 	(format stream "(WHEN (NOT (MEMBER (BOUND-TEST (QUOTE ~S)) *AVAILABLE-SOM*)) (LET ((FILE (FORMAT NIL \"~~A~S.som\" *N3-BACKUP-DIRECTORY*))) (IF (OPEN FILE :IF-DOES-NOT-EXIST NIL) (LOAD-NEURAL-NETWORK FILE) (WARN \"This tree has been built from the neural network ~S. The latter should be loaded ...\"))))" (car (node-data self)) (car (node-data self)) (car (node-data self))))
-      (UIOP:run-program (format nil "sh -c '~S ~S'" scriptpath path)))))
+      (UIOP:run-program (format nil "sh -c '~S ~S'" *UPDATE-SAVED-NET* path)))))
 
 (defun split-path (string)
   (loop for i = 0 then (1+ j)

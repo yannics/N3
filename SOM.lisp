@@ -181,7 +181,7 @@
 
 (defmethod activation ((self som))
   (dolist (n (neurons-list self))
-    (activation n))
+	  (activation n))
   (if (zerop (reduce #'+ (input self))) nil t))
 
 (defmethod winner ((self som))
@@ -195,9 +195,30 @@
                   
 (defgeneric learn (self &key seq))
 
+(defun mean (xlst &optional wlst)
+  (if wlst
+      (float (/ (apply #'+ (mapcar #'* xlst wlst)) (apply #'+ wlst)))
+      (float (/ (apply #'+ xlst) (length xlst)))))
+
+(defun mat-trans (lst)
+  (apply #'mapcar #'list lst))
+
 (defmethod learn ((self som) &key seq)
   (declare (ignore seq))
-  (setf (neuron-gagnant self) (winner self))
+  ;;------------------------------
+  (setf (neuron-gagnant self)
+	(winner self)
+	;; experimental assignation synapses-list
+	;; doc synapses-list versus output
+	;; output localisation:
+	;; ---> SOM init-som and learn
+	;; ---> CAH ghost-neuron
+	;; ---> USER euclidean
+	(synapses-list (neuron-gagnant self))
+	(if (synapses-list (neuron-gagnant self))
+	    (mapcar #'mean (mat-trans (list (synapses-list (neuron-gagnant self)) (input self))))
+	    (input self))) 
+  ;;------------------------------
   ;; neighbourhood correction
   (loop for n in (neurons-list self) do   
        (let ((dist (funcall (distance-in self) (id (neuron-gagnant self)) n :position t))
@@ -213,4 +234,3 @@
   (values))
 
 ;------------------------------------------------------------------
-  	  	

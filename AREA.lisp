@@ -105,35 +105,17 @@
 (defmethod set-all-zeros ((self area) &key mode)
   (loop for i in (soms-list self) do (set-all-zeros (id i) :mode mode)))
 
-(defgeneric allocate-sequence (self data))
-
-(defun mk-var (val &optional (num 1))
-  "Name or rename val."
-  (let ((tmp (read-from-string (format nil "~S-dat~S" val num))))
-    (if (boundp tmp)
-	(mk-var val (1+ num))
-	tmp)))
-
-(defmethod allocate-sequence ((self mlt) (data list))
-  (declare (ignore test))
-  (let ((name (mk-var self)))
-    (when (= (nbre-input self) (length (car data)))
-      (eval (list 'defparameter name nil))
-      (set name data)
-      name)))
-
-(defmethod allocate-sequence ((self mlt) (file string))
-  (allocate-sequence self (read-file file)))
-
-(defmethod allocate-sequence ((self mlt) (file pathname))
-  (allocate-sequence self (read-file (namestring file))))
-
-(defmethod allocate-sequence ((self mlt) (data t))
-  (declare (ignore self data))
-  (warn "Wrong data list input.") nil)
-
-(defmethod allocate-sequence ((self area) (data list))
-  (loop for s in (soms-list self) for f in data collect (allocate-sequence (id s) f)))
+;;------------------------------
+(defgeneric read-data (self data))
+(defmethod read-data ((self mlt) (data list)) (when (loop for i in data always (= (nbre-input self) (length i))) data))
+(defmethod read-data ((self mlt) (file string)) (read-data self (read-file file)))
+(defmethod read-data ((self mlt) (file pathname)) (read-data self (read-file (namestring file))))
+(defmethod read-data ((self mlt) (data null)) (declare (ignore self data)) nil)
+(defmethod read-data ((self mlt) (data t)) (declare (ignore self data)) nil)
+(defmethod read-data ((self area) (data list))
+  (let ((seq (remove nil (loop for s in (soms-list self) for f in data collect (read-data (id s) f)))))
+    (when (and (= (length (soms-list self)) (length seq)) (loop for i in (cdr seq) always (= (length (car seq)) (length i)))) seq)))
+;;------------------------------
 
 (defmethod add-edge ((self area) (clique list) (pos integer))
   (let* ((l (loop for i in clique for j from 0 when (integerp i) collect (list i j)))
@@ -144,16 +126,19 @@
 	 (update-ht (arcs self) (list node i) (sensorial-rate self)))))
 
 (defmethod learn ((self area) &key seq)
-  (let ((data (when seq (allocate-sequence self seq))))
-    (when data
-      (set-all-zeros self :mode :onset)
-      (loop
-	 for i from 0 to (1- (length (symbol-value (car data)))) do
-	   (loop
-	      for s in (soms-list self)
-	      for d in data do
-		(setf (input (id s)) (nth i (symbol-value d)))) (learn self))
-      (set-all-zeros self :mode :fine)))
+  (when seq
+    (let ((data (when seq (read-data self seq))))
+      (if data
+	  (progn
+	    (set-all-zeros self :mode :onset)
+	    (loop
+	       for i from 0 to (1- (length (car data))) do
+		 (loop
+		    for s in (soms-list self)
+		    for d in data do
+		      (setf (input (id s)) (nth i d))) (learn self))
+	    (set-all-zeros self :mode :fine))
+	  (warn "The argument of the key :seq is not a valid list."))))
   (when (activation self)  
     (dotimes (n (length (soms-list self))) (add-edge self (current-clique self) n) (add-edge (id (nth n (soms-list self))) (nth n (current-clique self)) (sensorial-rate self)))))
     
@@ -202,8 +187,7 @@ In others word, clique = (index_fanal_SOM1 index_fanal_SOM2 ...)."
 
 ;; some possible test
 (defun sum (lst) (reduce #'+ lst))
-(defun maxi (lst) (reduce #'max lst))
-(defun mini (lst) (reduce #'min lst))
+;; see also mini or maxi
 
 (defmethod group-list ((lt list) (seg area) &optional mode)
   (declare (ignore seg mode))
