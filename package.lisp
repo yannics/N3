@@ -16,6 +16,7 @@
 	   :LEARN
 	   :SAVE
 	   :LOAD-NEURAL-NETWORK
+	   :NEXT-EVENT-PROBABILITY
 	  
 	   :*TREE*
 	   :GET-LEAVES
@@ -26,4 +27,14 @@
 	   :TREE-MENU
 	   
 	   :SEND-UDP
-	   :OSC-LISTEN))
+	   :OSC-LISTEN
+
+	   :EUCLIDEAN
+	   :EXP-DECAY
+	   :FN-MEX
+	   :GAUSS
+	   :QUADRARE
+	   :RND-MAP))
+
+(in-package :N3)
+(setf *random-state* (make-random-state t))

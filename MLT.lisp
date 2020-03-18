@@ -82,6 +82,7 @@ nil = check if e1 and e2 are in common one node;
 
 ;; from http://www.lee-mac.com/insertnth.html
 (defun insertnth (x n l)
+  "This function inserts an item 'x' at the n(th) position in a list 'l'."
   (cond ((null l) nil)
 	((< 0  n) (cons (car l) (insertnth x (1- n) (cdr l))))
 	((cons x l))))
@@ -194,8 +195,10 @@ nil = check if e1 and e2 are in common one node;
 ;; Studia musica no.6, doctoral dissertation, Sibelius Academy, Helsinki, 1996.
 ;; chapter 5.1 PWCONSTRAINTS
 
-(defgeneric node-match (car-node cadr-node htal))
 (defgeneric search-space-in (self trn-sp))
+(defgeneric node-match (car-node cadr-node htal))
+(defgeneric test-trn (self trn))
+(defgeneric tournoi-p (trn mlt ht) (:documentation "trn = list of fanaux indices; ht = keyword (:trns :arcs :trns? :arcs?)"))
 
 (defun ar-ser (n &optional r)
   (dotimes (i n (reverse r)) (push i r)))
@@ -253,13 +256,28 @@ nil = check if e1 and e2 are in common one node;
   (if (= 1 (length lst)) r
       (get-arc-from-tournoi (cdr lst) (append r (loop for i in (cdr lst) collect (list (car lst) i))))))
 
-(defun tournoi-p (trn htal)
-  (when trn (loop for i in (get-arc-from-tournoi trn) always (member i htal :test #'equalp))))
+(defmethod test-trn ((self mlt) (trn list))
+  (and (loop for i in trn always (or (eq '? i) (and (integerp i) (>= i 0) (< i (length (fanaux-list self)))))) (not (loop for i in trn always (eq '? i)))))
 
+(defmethod tournoi-p ((trn list) (self mlt) (ht symbol))
+  (when (test-trn self trn)
+    (case ht
+      (:arcs (loop for i in (get-arc-from-tournoi trn) always (member i (loop for key being the hash-keys of (arcs self) collect key) :test #'equalp)))
+      (:arcs? (loop for i in (loop for i in (get-arc-from-tournoi trn) unless (member '? i) collect i) always (member i (loop for key being the hash-keys of (arcs self) collect key) :test #'equalp)))
+      (:trns (cond ((> (length trn) (cover-value self))
+		    (loop for i in (step-wind trn (cover-value self)) always (when (test-trn self i) (chain-match self i))))
+		   ((< (length trn) (cover-value self))
+		    (when (chain-match self trn) t))
+		   (t
+		    (when (gethash trn (trns self)) t))))
+      (:trns? (if (> (length trn) (cover-value self))
+		  (loop for i in (step-wind trn (cover-value self)) always (when (test-trn self i) (chain-match self i)))
+		  (when (chain-match self trn) t)))
+      (otherwise nil))))
+    
 (defmethod search-space-in ((self mlt) (trn-sp list))
-  (let* ((nht (arcs self))
-	 (htal (loop for key being the hash-keys of nht collect key))
-	 (trn-sp-node (trn-match trn-sp htal))
+  (let* ((htal (loop for key being the hash-keys of (arcs self) collect key))
+	 (trn-sp-node (trn-match trn-sp htal))	 
 	 (ll (loop for i in trn-sp-node collect (length i)))
 	 (sp (loop for i in ll collect (ar-ser i)))
 	 (tr (reccomb (car sp) (cdr sp)))) 
@@ -267,7 +285,7 @@ nil = check if e1 and e2 are in common one node;
 	    (remove nil (loop for i in tr collect 
 			     (let ((trnt (loop for j in i for p from 0 
 					    collect (nth j (nth p trn-sp-node)))))
-			       (when (tournoi-p (lst>trn trnt) htal) trnt)))))))
+			       (when (tournoi-p (lst>trn trnt) self :arcs) trnt)))))))
 
 ;------------------------------------------------------------------
 ;                                                    LOCATE-TOURNOI
@@ -280,42 +298,61 @@ The key :test manages the weights as a mean value by default."))
 (defgeneric get-weight (self chain-list &key remanence test))
 
 (defmethod chain-match ((self mlt) (chain list))
-  (let ((pl (loop for i in (reverse chain) for pos from 0 when (integerp i) collect pos)))
-    (loop for a in (loop for key being the hash-keys of (trns self) collect key) when (and (>= (length a) (length chain)) (loop for b in pl always (= (nth b (reverse chain)) (nth b (reverse a))))) collect a)))
+  (loop for i in (loop for key being the hash-keys of (trns self) collect key) when (search chain i :test #'(lambda (a b) (or (eq a '?) (= a b)))) collect i))
 
-(defun last-n (lst n)
-  (subseq lst (max 0 (- (length lst) n))))
-
-(defmethod get-weight ((self mlt) (chain-list list) &key (remanence t) (test #'mean))  ;; chain-list = result of locate-tournoi
+(defmethod get-weight ((self mlt) (chain-list list) &key (remanence t) (test #'mean)) ;; chain-list = result of locate-tournoi
   (if remanence
       (loop for i in chain-list collect (gethash i (trns self)))
       (loop for i in chain-list collect (funcall test (loop for i in (get-arc-from-tournoi i) collect (if (gethash i (arcs self)) (gethash i (arcs self)) 0))))))
 
-(defun complist (lst nl &optional (add 1))
-  (cond ((and (numberp lst) (integerp nl)) (complist (list lst) nl add))
-	((and (numberp lst) (listp nl)) (complist (list lst) (length nl) add))
-	((and (listp lst) (listp nl)) (complist lst (length nl) add))
-	(t (if (<= nl (length lst))
-	       (subseq lst 0 nl)
-	       (let ((l (reverse lst)))
-		 (loop until (= nl (length l))
-		    do
-		      (push add l))
-		 (reverse l))))))
+(defun complist (a nl &optional (add 1))
+  (cond ((and (numberp a) (integerp nl)) (complist (list a) nl add))
+	((and (numberp a) (listp nl)) (complist (list a) (length nl) add))
+	((and (listp a) (listp nl)) (complist a (length nl) add))
+	((and (listp a) (integerp nl))
+	 (if (<= nl (length a))
+	     (subseq a 0 nl)
+	     (let ((l (reverse a)))
+	       (loop until (= nl (length l))
+		  do
+		    (push add l))
+	       (reverse l))))
+	(t nil)))
 
 (defun normalize-sum (lst) (let ((sum (reduce #'+ lst))) (loop for i in lst collect (/ i sum))))
 
+(defun step-wind (seq wind)
+  (remove nil (maplist #'(lambda (x) (if (> wind (length x)) nil (subseq x 0 wind))) seq)))
+
+(defun merge-sw (trns-list)
+  (when (loop for i from 1 to (1- (length trns-list)) always (equalp (cdr (nth (1- i) trns-list)) (butlast (nth i trns-list))))
+    (append (butlast (car trns-list)) (loop for i in trns-list append (last i)))))
+
 (defmethod locate-tournoi ((self mlt) (tournoi list) &key (remanence t) (test #'mean))
-  (setf tournoi (complist tournoi (cover-value self) '?))
-  (let* ((res (if remanence
-		  (remove-duplicates (loop for i in (chain-match self tournoi) when (<= (length tournoi) (length i)) collect (last-n i (length tournoi))) :test #'equalp)
-		  (search-space-in self tournoi)))
-	 (tmp (loop for r in (mapcar #'list (get-weight self res :remanence remanence :test test) res) unless (null (car r)) collect r)))
-    (ordinate (mapcar #'list (mapcar #'float (normalize-sum (mapcar #'car tmp))) (mapcar #'cadr tmp)) #'> :key #'car)))
-
-(defmethod locate-tournoi ((self mlt) (tournoi integer) &key (remanence t) (test #'mean))
-  (locate-tournoi self (list tournoi) :remanence remanence :test test))
-
+  ;; any potential tournoi not recognized as such will be interpreted as NIL including tournoi compouded of only wild cards as (? ? ...).
+  (when (and (> (length tournoi) 2) (test-trn self tournoi))
+    (let ((res (if remanence
+		   (if (> (length tournoi) (cover-value self))
+		       (let ((al (loop for i in (step-wind tournoi (cover-value self)) collect (when (test-trn self i) (chain-match self i)))))
+			 (if (member nil al)
+			     nil
+			     (let ((tmp (loop for i in (car al) append (remove nil (loop for j in (reccomb (list (list i)) (cdr al)) collect (merge-sw j))))))
+			       (loop for r in (mapcar #'list (mapcar #'(lambda (x) (reduce #'+ (get-weight self (step-wind x (cover-value self)) :remanence remanence :test test))) tmp) tmp) collect r))))
+		       (let* ((tmp (chain-match self tournoi))
+			      (lt (loop for r in (mapcar #'list (get-weight self tmp :remanence remanence :test test) tmp) collect r))
+			      (htmp (make-hash-table :test #'equalp)))
+			 (loop for i in lt do
+			      (let* ((ind (search tournoi (cadr i) :test #'(lambda (a b) (or (eq a '?) (= a b)))))
+				     (subs (subseq (cadr i) ind (+ ind (length tournoi)))))
+				(setf (gethash subs htmp)
+				      (if (gethash subs htmp)
+					  (+ (gethash subs htmp) (car i))
+					  (car i)))))
+			 (loop for he in (hash-table-alist htmp) collect (list (cdr he) (car he)))))
+		   (let ((tmp (search-space-in self tournoi)))
+		     (loop for r in (mapcar #'list (get-weight self tmp :remanence remanence :test test) tmp) collect r)))))
+      (ordinate (mapcar #'list (mapcar #'float (normalize-sum (mapcar #'car res))) (mapcar #'cadr res)) #'> :key #'car))))
+      
 ;------------------------------------------------------------------
 ;                                                          LEARNING    
 
@@ -339,7 +376,7 @@ as arcs forming the tournoi when self is MLT, then a = tournoi = T (as integer) 
 
 (defmethod add-edge ((self mlt) (node integer) (sr number))
   (when (mem-cache self)
-    (setf (mem-cache self) (push node (mem-cache self)))
+    (push node (mem-cache self))
     (when (> (length (mem-cache self)) (cover-value self))
       (update-ht (onset self) (butlast (mem-cache self)) (if (net self) (sensorial-rate (id (net self))) 1))
       (setf (mem-cache self) nil))) 
@@ -381,18 +418,20 @@ with sum of weight(i) = 1.0"
     (values (car res) (cadr res))))
 
 (defgeneric next-event-probability (head self &key result remanence))
-(defmethod next-event-probability ((head list) (self mlt) &key (result :compute) remanence)
-  (let ((hd (reverse head)) hist)
-    ;(loop for i in hd until (integerp i) do (setf hd (cdr hd)))
-    (setf hist (locate-tournoi self (reverse (complist hd (1- (cover-value self)) '?)) :remanence remanence)) 
-    (case result
-      (:list (loop for i in (group-list hist self) collect (list (* 1.0 (cadr i)) (car i))))
-      (:verbose (loop for i in (group-list hist self) do
-		     (format t "~@<~S => ~3I~_~,6f %~:>~%" (car i) (* 100.0 (cadr i)))))
-      (:compute (rnd-weighted (group-list hist self))))))
-
+(defmethod next-event-probability ((head list) (self mlt) &key (result :compute) (remanence t))
+  (let ((hist
+	 (if remanence
+	     (locate-tournoi self (reverse (complist (cons '? (reverse head)) (cover-value self) '?)) :remanence t)
+	     (locate-tournoi self (reverse (cons '? (reverse head))) :remanence nil))))
+    (when hist
+      (case result
+	(:list (loop for i in (group-list hist self) collect (list (* 1.0 (cadr i)) (car i))))
+	(:verbose (loop for i in (group-list hist self) do
+		       (format t "~@<~S => ~3I~_~,6f %~:>~%" (car i) (* 100.0 (cadr i)))))
+	(:compute (rnd-weighted (group-list hist self)))))))
+  
 (defmethod next-event-probability ((head integer) (self mlt) &key (result :compute) remanence)
-  (next-event-probability (list head) self :remanence remanence :result result))
+  (next-event-probability (list '? head) self :remanence remanence :result result))
 
 ;------------------------------------------------------------------
 ;                                                UPDATE-COVER-VALUE    

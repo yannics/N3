@@ -181,3 +181,62 @@ nodes = ((2 ? ? 1) nil); that means (car nodes) = tournoi with wild cards for ev
     (UIOP:run-program (format nil "sh -c '~S ~S dot ~S'" scriptpath out *display*))))
 
 ;------------------------------------------------------------------
+
+(defun flat-1 (lst) (if (consp (car lst)) (apply 'append lst) lst))
+
+(defun combx (vals n)
+  "From PW: Creates all combinations of n elements from vals."
+   ; ATTENTION: Not always equal to (+ n 1) per a problem in recursion ...???
+  (cond
+    ((<=  n 0) vals)
+    (t (flat-1
+	(mapcar #'(lambda (x) (mapcar #'(lambda (y) (append (list! x) (list! y))) (list! vals))) (list! (combx vals (1- n))))))))
+
+(defun all-combinations (vals n)
+  "From old PatchWork: it creates all combinations of the given list in vals with a length set in n."
+  (let ((n (1- n)))
+    (combx vals n)))
+
+;;; ;;    ;  ; ;  ;;; ;  ;;  ;;; ;;    ;
+
+(defgeneric all-tournoi (self &key order remanence))
+(defgeneric all-clique (self))
+(defgeneric rnd-tournoi (self &key order remanence))
+(defgeneric rnd-clique (self))
+
+(defun ser-list (n)
+  (loop for ser from 0 to (1- n) collect ser))
+
+(defmethod all-tournoi ((self mlt) &key (order (cover-value self)) (remanence t))
+  (when (and (integerp order) (> order 1))
+    (if remanence
+	(let ((res (if (= order (cover-value self))
+		       (loop for he in (hash-table-alist (trns self)) collect (list (cdr he) (car he)))
+		       (let* ((allht (loop for value being the hash-values of (trns self) using (hash-key key) collect (list value key)))
+			      (allwo (if (> order (cover-value self))
+					 (remove-duplicates (loop for i in allht append (locate-tournoi self (complist (cadr i) order '?))) :test #'equalp :key #'cadr)
+					 (loop for k in allht append (loop for j in (step-wind (cadr k) order) collect (list (car k) j)))))
+			      (htmp (make-hash-table :test #'equalp)))
+			 (loop for i in allwo
+			    do
+			      (setf (gethash (cadr i) htmp)
+				    (if (gethash (cadr i) htmp)
+					(+ (gethash (cadr i) htmp) (car i))
+					(car i))))
+			 (loop for he in (hash-table-alist htmp) collect (list (cdr he) (car he)))))))
+	  (ordinate (mapcar #'list (mapcar #'float (normalize-sum (mapcar #'car res))) (mapcar #'cadr res)) #'> :key #'car))      
+	(let ((res (loop for i in (all-combinations (ser-list (length (fanaux-list self))) order) when (tournoi-p i self :arcs) collect i)))
+	  (ordinate (mapcar #'list (mapcar #'float (normalize-sum (get-weight self res :remanence nil))) res) #'> :key #'car)))))
+
+(defmethod rnd-tournoi ((self mlt) &key (order (cover-value self)) (remanence t))
+  (rnd-weighted (mapcar #'reverse (all-tournoi self :remanence remanence :order order))))
+
+(defmethod all-clique ((self area))
+  (let ((tmp (loop for i in (reccomb (ser-list (car (fanaux-length self))) (mapcar #'ser-list (cdr (fanaux-length self)))) when (clique-p i self) collect i)))
+    (ordinate (mapcar #'list (mapcar #'float (normalize-sum (get-weight self tmp))) tmp) #'> :key #'car)))
+
+(defmethod rnd-clique ((self area))
+  (rnd-weighted (mapcar #'reverse (all-clique self))))
+
+;------------------------------------------------------------------
+

@@ -31,6 +31,8 @@
       (t (warn "Display command line not listed.")))
 ;++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
+(defvar *latency* 0.1)
+
 ;------------------------------------------------------------------
 ;                                                  mapping function
 
@@ -164,10 +166,12 @@
 
 ;; three arguments (epoch, initial-value, learning-time) ...
 
-(defun exp-decay (epoch initial-value learning-time &optional parameter)
+(defun exp-decay (epoch initial-value learning-time &optional final-value)
   "The final value has to be different of the initial value (to avoid division by zero). 
 When the final value is superior to initial value, the function becomes increasing."
-  (let ((final-value (if parameter parameter 1)))
-    (* initial-value (exp (/ epoch (/ learning-time (log (/ final-value initial-value))))))))
+  (* initial-value (exp (/ epoch (/ learning-time (log (/ (if (numberp final-value) final-value 1) initial-value)))))))
 
 ;------------------------------------------------------------------
+
+    
+    

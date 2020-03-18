@@ -170,16 +170,18 @@
 ;------------------------------------------------------------------
 ;                                                        ACTIVATION     
 
-(defgeneric activation (self))
+(defgeneric activation (self &key seq))
 (defgeneric winner (self))
 
-(defmethod activation ((self neuron))
+(defmethod activation ((self neuron) &key seq)
+  (declare (ignore seq))
   (let ((net (id (net self)))
 	(temperature (temperature self)))
     (setf (erreur self) (+ (if (zerop temperature) 0 (random temperature)) (funcall (distance-out net) net self)))
     (values)))
 
-(defmethod activation ((self som))
+(defmethod activation ((self som) &key seq)
+  (declare (ignore seq))
   (dolist (n (neurons-list self))
 	  (activation n))
   (if (zerop (reduce #'+ (input self))) nil t))

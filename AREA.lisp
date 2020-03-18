@@ -90,14 +90,12 @@
 ;------------------------------------------------------------------
 ;                                                 ACTIVATION (AREA)   
 
-(defmethod activation ((self area))
+(defmethod activation ((self area) &key seq)
   (unless (loop for i in (soms-list self) always (and (not (null (fanaux-list (id i)))) (zerop (apply #'+ (input (id i))))))
-    (loop for i in (soms-list self) do (learn (id i) :seq t))
+    (loop for i in (soms-list self) do (learn (id i) :seq seq))
     (setf (current-clique self)
 	  (loop for s in (soms-list self) collect
-	       (let ((dist (loop for i in (fanaux-list (id s)) collect (funcall (distance-in (id s)) (winner (id s)) (id i)))))
-		 (if (zerop (apply #'+ (input (id s)))) '?
-		     (position (apply #'min dist) dist :test #'equal)))))))
+	       (car (mct (id s)))))))
 
 ;------------------------------------------------------------------
 ;                                                   LEARNING (AREA)  
@@ -126,21 +124,21 @@
 	 (update-ht (arcs self) (list node i) (sensorial-rate self)))))
 
 (defmethod learn ((self area) &key seq)
-  (when seq
-    (let ((data (when seq (read-data self seq))))
-      (if data
-	  (progn
-	    (set-all-zeros self :mode :onset)
-	    (loop
-	       for i from 0 to (1- (length (car data))) do
-		 (loop
-		    for s in (soms-list self)
-		    for d in data do
-		      (setf (input (id s)) (nth i d))) (learn self))
-	    (set-all-zeros self :mode :fine))
-	  (warn "The argument of the key :seq is not a valid list."))))
-  (when (activation self)  
-    (dotimes (n (length (soms-list self))) (add-edge self (current-clique self) n) (add-edge (id (nth n (soms-list self))) (nth n (current-clique self)) (sensorial-rate self)))))
+  (if seq
+      (let ((data (when seq (read-data self seq))))
+	(if data
+	    (progn
+	      (set-all-zeros self :mode :onset)
+	      (loop
+		 for i from 0 to (1- (length (car data))) do
+		   (loop
+		      for s in (soms-list self)
+		      for d in data do
+			(setf (input (id s)) (nth i d))) (learn self))
+	      (set-all-zeros self :mode :fine))
+	    (warn "The argument of the key :seq is not a valid list.")))
+      (when (activation self :seq t)
+	(dotimes (n (length (soms-list self))) (add-edge self (current-clique self) n)))))
     
 ;------------------------------------------------------------------
 ;                                                     LOCATE-CLIQUE
@@ -194,8 +192,19 @@ In others word, clique = (index_fanal_SOM1 index_fanal_SOM2 ...)."
   (let ((ll (remove-duplicates lt :test #'equalp)))
     (ordinate (mapcar #'list (mapcar #'cadr ll) (normalize-sum (mapcar #'car ll))) #'> :key #'cadr)))
 
+(defgeneric test-clique (self clique &key as-nodes))
+(defmethod test-clique ((self area) (clique list) &key as-nodes)
+  (if as-nodes
+      (and clique (loop for i in clique always (= 2 (length i)))
+	   (let ((cli (make-list (length (soms-list self)) :initial-element '?)))
+	     (loop for i in clique	 
+		do (setf cli (substitute-nth (car i) (cadr i) cli)))
+	     (test-clique self cli)))
+      (and (= (length (soms-list self)) (length clique)) (loop for c in clique for i from 0 always (or (eq '? c) (and (integerp c) (>= c 0) (< c (nth i (fanaux-length self)))))) (not (loop for i in clique always (eq '? i))))))
+
 (defmethod locate-clique ((self area) (nodes list) &key (test #'mean))
-  (let* ((el (if (listp (car nodes)) nodes (loop for i in nodes for s from 0 when (integerp i) collect (list i s))))
+  ;; any malformed nodes list will be interpreted as NIL.
+  (let* ((el (if (listp (car nodes)) (when (test-clique self nodes :as-nodes t) nodes) (when (test-clique self nodes) (loop for i in nodes for s from 0 when (integerp i) collect (list i s)))))
 	 (nht (arcs self))
 	 (ed (if (null el)
 		 (loop for key being the hash-keys of nht collect key)
@@ -226,9 +235,8 @@ In others word, clique = (index_fanal_SOM1 index_fanal_SOM2 ...)."
   (reduce #'* (mapcar #'cadr (loop for i in clique for j in al collect (assoc i (mapcar #'reverse j))))))
 
 (defmethod next-event-probability ((head list) (self area) &key (result :compute) remanence)
-  (let* ((mltl (mat-trans head))
-	 (al (loop for i in mltl for net in (soms-list self) collect (next-event-probability i (id net) :remanence remanence :result :list)))
-	 r) 
+  (let ((al (loop for i in (mat-trans head) for net in (soms-list self) collect (next-event-probability i (id net) :remanence remanence :result :list))) 
+	r) 
     (loop for c in (dispatch-combination (mapcar #'list! (loop for l in al collect (if (null l) '? (mapcar #'cadr l))))) when (clique-p c self) do (setf r (append (mapcar #'cadr (locate-clique self c)) r)))
     (let* ((tmp (group-list (mat-trans (list (get-weight self r) r)) self))
 	   (rwi (mapcar #'cons (loop for i in tmp collect (trns-prob (car i) al)) (mapcar #'reverse tmp)))
@@ -237,7 +245,7 @@ In others word, clique = (index_fanal_SOM1 index_fanal_SOM2 ...)."
 	(:list (if remanence orwi rwi))
 	(:verbose (loop for i in (if remanence orwi rwi) do
 		       (format t "~@<~S => ~3I~_R:~,6f % - ~,6f %~:>~%" (caddr i) (* 1.0 (car i)) (* 1.0 (cadr i)))))
-	(:compute (let* ((res (rnd-weighted (if remanence (mapcar #'reverse (mapcar #'list (normalize-sum (mapcar #'car orwi)) (mapcar #'caddr orwi))) tmp)))
+	(:compute (let* ((res (rnd-weighted (if remanence (mapcar #'reverse (mapcar #'list (mapcar #'car orwi) (mapcar #'caddr orwi))) tmp)))
 			 (vals (assoc res (mapcar #'reverse rwi) :test #'equalp)))
 		    (values
 		     res

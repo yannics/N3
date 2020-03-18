@@ -73,7 +73,7 @@
 		      msg) *data-buffer*))
       (when s (close S)))))
 
-;; (setf listen-port-7771 (ccl:process-run-function "listen-port-7771" #'(lambda () (osc-listen 7771))))
-;; (setf listen-port-7773 (sb-thread:make-thread #'(lambda () (osc-listen 7773)) :name "listen-port-7773"))
+;; (defparameter listen-port-7771 (ccl:process-run-function "listen-port-7771" #'(lambda () (osc-listen 7771))))
+;; (defparameter listen-port-7773 (sb-thread:make-thread #'(lambda () (osc-listen 7773)) :name "listen-port-7773"))
 ;------------------------------------------------------------------
 
