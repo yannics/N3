@@ -216,8 +216,8 @@ In others word, clique = (index_fanal_SOM1 index_fanal_SOM2 ...)."
 	 (r (if edp
 		(sort-clique (append el eds (group-edges edp)))
 		(sort-clique (append el eds))))
-	 (res (ordered-combinatorial-distribution (loop for i in r collect (if (listp (car i)) (mapcar #'car i) (car i))))))
-    (mapcar #'reverse (ordinate (group-list (loop for r in (mapcar #'list (get-weight self res :test test) res) unless (null (car r)) collect r) self) #'> :key #'cadr))))
+	 (res (ordered-combinatorial-distribution (loop for i in r collect (if (listp (car i)) (mapcar #'car i) (car i)))))) 
+    (unless (integerp (car res)) (mapcar #'reverse (ordinate (group-list (loop for r in (mapcar #'list (get-weight self res :test test) res) unless (null (car r)) collect r) self) #'> :key #'cadr)))))
 
 ;------------------------------------------------------------------
 ;                                            NEXT-EVENT-PROBABILITY
@@ -247,9 +247,9 @@ In others word, clique = (index_fanal_SOM1 index_fanal_SOM2 ...)."
 		       (format t "~@<~S => ~3I~_R:~,6f % - ~,6f %~:>~%" (caddr i) (* 1.0 (car i)) (* 1.0 (cadr i)))))
 	(:compute (let* ((res (rnd-weighted (if remanence (mapcar #'reverse (mapcar #'list (mapcar #'car orwi) (mapcar #'caddr orwi))) tmp)))
 			 (vals (assoc res (mapcar #'reverse rwi) :test #'equalp)))
-		    (values
-		     res
-		     (caddr vals)
-		     (cadr vals))))))))
+		    (when res (values
+			       res
+			       (caddr vals)
+			       (cadr vals)))))))))
 
 ;------------------------------------------------------------------
