@@ -7,8 +7,6 @@
 
 (in-package :N3)
 
-(setf *random-state* (make-random-state t))
-
 ;; make-new-symbol is used to name or rename a symbol
 (defun make-new-symbol (name &optional content)
   (let ((sym (intern (string (if (boundp (read-from-string (string name)))
@@ -207,20 +205,8 @@
 
 (defmethod learn ((self som) &key seq)
   (declare (ignore seq))
-  ;;------------------------------
   (setf (neuron-gagnant self)
-	(winner self)
-	;; experimental assignation synapses-list
-	;; doc synapses-list versus output
-	;; output localisation:
-	;; ---> SOM init-som and learn
-	;; ---> CAH ghost-neuron
-	;; ---> USER euclidean
-	(synapses-list (neuron-gagnant self))
-	(if (synapses-list (neuron-gagnant self))
-	    (mapcar #'mean (mat-trans (list (synapses-list (neuron-gagnant self)) (input self))))
-	    (input self))) 
-  ;;------------------------------
+	(winner self)) 
   ;; neighbourhood correction
   (loop for n in (neurons-list self) do   
        (let ((dist (funcall (distance-in self) (id (neuron-gagnant self)) n :position t))

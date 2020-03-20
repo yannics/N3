@@ -31,27 +31,6 @@
 ;------------------------------------------------------------------
 ;                                                             UTILS
 
-(defun ht (ht &aux (*print-pretty* t))
-  (format t "~&~s~%" ht)
-  (maphash (lambda (k v) (format t "~@<~S~20T~3I~_~S~:>~%" k v)) ht)
-  (values))
-
-;;;  ;  ;;  ; ; ;; ; ; ; ;   ;
-
-;; convert the hash table into an association list
-;; from the Alexandria library
-(defun hash-table-alist (table)
-  "Returns an association list containing the keys and values of hash table TABLE."
-  (let ((alist nil))
-    (maphash (lambda (k v)
-               (push (cons k v) alist))
-             table)
-    alist))
-
-(defun sort-hash-table-by-keys (table)
-  "Keys are expected to be numeric."
-  (ordinate (hash-table-alist table) #'> :key #'car))
-
 (defvar *days* '("Monday" "Tuesday" "Wednesday" "Thursday" "Friday" "Saturday" "Sunday"))
 
 (defgeneric history (self &optional opt))
@@ -64,7 +43,7 @@
 		   (decode-universal-time gdt)
 		 (declare (ignore dst-p))
 		 (format nil "#<~a ~2,'0d:~2,'0d:~2,'0d ~2,'0d/~2,'0d/~d (GMT~@d)>" (nth day-of-week *days*) hour minute second date month year (- tz)))))
-      (let ((mht (sort-hash-table-by-keys (date-report self))))
+      (let ((mht (ordinate (ht (date-report self) :al) #'> :key #'car)))
 	(loop for i in (butlast mht) do (format t "Modified: ~a~&" (tps (car i))) (format t (cdr i)) (format t "~&"))
 	(format t "Created: ~a~&---> ~a~&" (tps (caar (last mht))) (cdar (last mht)))))))
 
@@ -115,7 +94,7 @@ When self is MLT, nodes has to be formed for instance as follow:
 nodes = ((2 ? ? 1) nil); that means (car nodes) = tournoi with wild cards for every unknown involving (length (car nodes)) = order; and (cadr nodes) = remanence (t or nil)"))
 
 (defmethod >dot ((self area) (nodes-lst list))
-  (let* ((el (remove-duplicates (loop for key being the hash-keys of (arcs self) collect key) :test #'(lambda (a b) (equalp a (reverse b)))))
+  (let* ((el (remove-duplicates (ht (arcs self) :k) :test #'(lambda (a b) (equalp a (reverse b)))))
 	 (ed (loop for i in nodes-lst collect (loop for j in el when (or (equalp i (car j)) (equalp i (cadr j))) collect j)))
 	 (cil (count-item-in-list (flat-once (flat-once ed))))
 	 (ped (loop for i in cil when (and (not (member (cadr i) nodes-lst :test #'equalp)) (>= (car i) (length nodes-lst))) collect (cadr i)))
@@ -149,7 +128,7 @@ nodes = ((2 ? ? 1) nil); that means (car nodes) = tournoi with wild cards for ev
     (UIOP:run-program (format nil "sh -c '~S ~S neato ~S'" scriptpath out *display*))))
 
 (defmethod >dot ((self mlt) (nodes-lst list))
-  (let* ((el (loop for key being the hash-keys of (arcs self) collect key))
+  (let* ((el (ht (arcs self) :k))
 	 (nl (loop for i in (car nodes-lst) when (numberp i) collect i)) 
 	 (ed (flat-once (loop for i in nl collect (loop for j in el when (or (equalp i (car j)) (equalp i (cadr j))) collect j))))
 	 (ped (remove-duplicates (flat-once (mapcar #'get-arc-from-tournoi (locate-tournoi self (car nodes-lst) :remanence (cadr nodes-lst)))) :test #'equalp))
@@ -180,7 +159,7 @@ nodes = ((2 ? ? 1) nil); that means (car nodes) = tournoi with wild cards for ev
       (format out "}"))
     (UIOP:run-program (format nil "sh -c '~S ~S dot ~S'" scriptpath out *display*))))
 
-;------------------------------------------------------------------
+;;;  ;  ;;  ; ; ;; ; ; ; ;   ;
 
 (defun flat-1 (lst) (if (consp (car lst)) (apply 'append lst) lst))
 
@@ -204,18 +183,15 @@ nodes = ((2 ? ? 1) nil); that means (car nodes) = tournoi with wild cards for ev
 (defgeneric rnd-tournoi (self &key order remanence))
 (defgeneric rnd-clique (self))
 
-(defun ser-list (n)
-  (loop for ser from 0 to (1- n) collect ser))
-
 (defmethod all-tournoi ((self mlt) &key (order (cover-value self)) (remanence t))
   (when (and (integerp order) (> order 1))
     (if remanence
 	(let ((res (if (= order (cover-value self))
-		       (loop for he in (hash-table-alist (trns self)) collect (list (cdr he) (car he)))
+		       (loop for he in (ht (trns self) :al) collect (list (cdr he) (car he)))
 		       (let* ((allht (loop for value being the hash-values of (trns self) using (hash-key key) collect (list value key)))
 			      (allwo (if (> order (cover-value self))
 					 (remove-duplicates (loop for i in allht append (locate-tournoi self (complist (cadr i) order '?))) :test #'equalp :key #'cadr)
-					 (loop for k in allht append (loop for j in (step-wind (cadr k) order) collect (list (car k) j)))))
+					 (loop for k in allht append (loop for j in (loop-wind (cadr k) order) collect (list (car k) j)))))
 			      (htmp (make-hash-table :test #'equalp)))
 			 (loop for i in allwo
 			    do
@@ -223,20 +199,47 @@ nodes = ((2 ? ? 1) nil); that means (car nodes) = tournoi with wild cards for ev
 				    (if (gethash (cadr i) htmp)
 					(+ (gethash (cadr i) htmp) (car i))
 					(car i))))
-			 (loop for he in (hash-table-alist htmp) collect (list (cdr he) (car he)))))))
+			 (loop for he in (ht htmp :al) collect (list (cdr he) (car he)))))))
 	  (ordinate (mapcar #'list (mapcar #'float (normalize-sum (mapcar #'car res))) (mapcar #'cadr res)) #'> :key #'car))      
-	(let ((res (loop for i in (all-combinations (ser-list (length (fanaux-list self))) order) when (tournoi-p i self :arcs) collect i)))
+	(let ((res (loop for i in (all-combinations (ar-ser (length (fanaux-list self))) order) when (tournoi-p i self :arcs) collect i)))
 	  (ordinate (mapcar #'list (mapcar #'float (normalize-sum (get-weight self res :remanence nil))) res) #'> :key #'car)))))
 
 (defmethod rnd-tournoi ((self mlt) &key (order (cover-value self)) (remanence t))
   (rnd-weighted (mapcar #'reverse (all-tournoi self :remanence remanence :order order))))
 
 (defmethod all-clique ((self area))
-  (let ((tmp (loop for i in (reccomb (ser-list (car (fanaux-length self))) (mapcar #'ser-list (cdr (fanaux-length self)))) when (clique-p i self) collect i)))
+  (let ((tmp (loop for i in (reccomb (ar-ser (car (fanaux-length self))) (mapcar #'ar-ser (cdr (fanaux-length self)))) when (clique-p i self) collect i)))
     (ordinate (mapcar #'list (mapcar #'float (normalize-sum (get-weight self tmp))) tmp) #'> :key #'car)))
 
 (defmethod rnd-clique ((self area))
   (rnd-weighted (mapcar #'reverse (all-clique self))))
+
+(defun rem-sublst (sub lst)
+  (let ((nl lst))
+    (loop for i in (list! sub) do (setf nl (remove i nl :test #'equalp))) nl))
+
+(defgeneric locate-cycle (nodes-lst &optional res))
+(defmethod locate-cycle ((nodes-lst list) &optional res)
+  (if (< (length nodes-lst) 3)
+      res
+      (if (equalp (caar nodes-lst) (cadar nodes-lst))
+	  (locate-cycle (cdr nodes-lst) res)
+	  (let ((tmp (list (car nodes-lst))))
+	    (loop for i in (cdr nodes-lst)
+	       do
+		 (when
+		     (and
+		      (not (equalp (car i) (cadr i)))
+		      (node= (car tmp) i :arcs 21)
+		      (loop for n in tmp never (node= n i :arcs 22))
+		      (not (node= (car tmp) (car (last tmp)) :arcs 21)))
+		   (push i tmp)))
+	    (if (and (> (length tmp) 2) (node= (car tmp) (car (last tmp)) :arcs 21))
+		(locate-cycle (rem-sublst tmp nodes-lst) (cons (reverse tmp) res))
+		(locate-cycle (cdr nodes-lst) res))))))
+
+(defmethod locate-cycle ((nodes-lst hash-table) &optional res)
+  (locate-cycle (ht nodes-lst :k) res))
 
 ;------------------------------------------------------------------
 

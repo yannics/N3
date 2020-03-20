@@ -24,6 +24,8 @@
     :initform (make-hash-table :test #'equalp) :initarg :trns :accessor trns)
    (arcs
     :initform (make-hash-table :test #'equalp) :initarg :arcs :accessor arcs)
+   (synapses-net
+    :initform (make-hash-table :test #'equalp) :initarg :synapses-net :accessor synapses-net)
    (mem-cache
     :initform nil :initarg :mem-cache :accessor mem-cache)))
 
@@ -203,8 +205,10 @@ nil = check if e1 and e2 are in common one node;
 (defun ar-ser (n &optional r)
   (dotimes (i n (reverse r)) (push i r)))
 
+(defun list! (x) (if (listp x) x (list x)))
+
 (defun cart (l1 l2)
-  (mapcar #'(lambda (x) (mapcar #'(lambda (y) (append (if (listp x) x (list x)) (list y))) l2)) l1))
+  (mapcar #'(lambda (x) (mapcar #'(lambda (y) (append (list! x) (list y))) l2)) l1))
 
 (defun reccomb (l1 l2 &optional (n 1))
   (unless (and (null l1) (null l2))
@@ -259,24 +263,30 @@ nil = check if e1 and e2 are in common one node;
 (defmethod test-trn ((self mlt) (trn list))
   (and (loop for i in trn always (or (eq '? i) (and (integerp i) (>= i 0) (< i (length (fanaux-list self)))))) (not (loop for i in trn always (eq '? i)))))
 
+(defun ht (ht &optional (key :k) &aux (*print-pretty* t))
+  (case key
+    (:k (let (r) (maphash (lambda (k v) (declare (ignore v)) (push k r)) ht) r))
+    (:al (let (r) (maphash (lambda (k v) (push (cons k v) r)) ht) r))
+    (:p (format t "~&~s~%" ht) (maphash (lambda (k v) (format t "~@<~S~20T~3I~_~S~:>~%" k v)) ht))))
+
 (defmethod tournoi-p ((trn list) (self mlt) (ht symbol))
   (when (test-trn self trn)
     (case ht
-      (:arcs (loop for i in (get-arc-from-tournoi trn) always (member i (loop for key being the hash-keys of (arcs self) collect key) :test #'equalp)))
-      (:arcs? (loop for i in (loop for i in (get-arc-from-tournoi trn) unless (member '? i) collect i) always (member i (loop for key being the hash-keys of (arcs self) collect key) :test #'equalp)))
+      (:arcs (loop for i in (get-arc-from-tournoi trn) always (member i (ht (arcs self) :k) :test #'equalp)))
+      (:arcs? (loop for i in (loop for i in (get-arc-from-tournoi trn) unless (member '? i) collect i) always (member i (ht (arcs self) :k) :test #'equalp)))
       (:trns (cond ((> (length trn) (cover-value self))
-		    (loop for i in (step-wind trn (cover-value self)) always (when (test-trn self i) (chain-match self i))))
+		    (loop for i in (loop-wind trn (cover-value self)) always (when (test-trn self i) (chain-match self i))))
 		   ((< (length trn) (cover-value self))
 		    (when (chain-match self trn) t))
 		   (t
 		    (when (gethash trn (trns self)) t))))
       (:trns? (if (> (length trn) (cover-value self))
-		  (loop for i in (step-wind trn (cover-value self)) always (when (test-trn self i) (chain-match self i)))
+		  (loop for i in (loop-wind trn (cover-value self)) always (when (test-trn self i) (chain-match self i)))
 		  (when (chain-match self trn) t)))
       (otherwise nil))))
     
 (defmethod search-space-in ((self mlt) (trn-sp list))
-  (let* ((htal (loop for key being the hash-keys of (arcs self) collect key))
+  (let* ((htal (ht (arcs self) :k))
 	 (trn-sp-node (trn-match trn-sp htal))	 
 	 (ll (loop for i in trn-sp-node collect (length i)))
 	 (sp (loop for i in ll collect (ar-ser i)))
@@ -298,7 +308,7 @@ The key :test manages the weights as a mean value by default."))
 (defgeneric get-weight (self chain-list &key remanence test))
 
 (defmethod chain-match ((self mlt) (chain list))
-  (loop for i in (loop for key being the hash-keys of (trns self) collect key) when (search chain i :test #'(lambda (a b) (or (eq a '?) (= a b)))) collect i))
+  (loop for i in (ht (trns self) :k) when (search chain i :test #'(lambda (a b) (or (eq a '?) (= a b)))) collect i))
 
 (defmethod get-weight ((self mlt) (chain-list list) &key (remanence t) (test #'mean)) ;; chain-list = result of locate-tournoi
   (if remanence
@@ -321,10 +331,10 @@ The key :test manages the weights as a mean value by default."))
 
 (defun normalize-sum (lst) (let ((sum (reduce #'+ lst))) (loop for i in lst collect (/ i sum))))
 
-(defun step-wind (seq wind)
+(defun loop-wind (seq wind)
   (remove nil (maplist #'(lambda (x) (if (> wind (length x)) nil (subseq x 0 wind))) seq)))
 
-(defun merge-sw (trns-list)
+(defun merge-lw (trns-list)
   (when (loop for i from 1 to (1- (length trns-list)) always (equalp (cdr (nth (1- i) trns-list)) (butlast (nth i trns-list))))
     (append (butlast (car trns-list)) (loop for i in trns-list append (last i)))))
 
@@ -333,11 +343,11 @@ The key :test manages the weights as a mean value by default."))
   (when (and (> (length tournoi) 2) (test-trn self tournoi))
     (let ((res (if remanence
 		   (if (> (length tournoi) (cover-value self))
-		       (let ((al (loop for i in (step-wind tournoi (cover-value self)) collect (when (test-trn self i) (chain-match self i)))))
+		       (let ((al (loop for i in (loop-wind tournoi (cover-value self)) collect (when (test-trn self i) (chain-match self i)))))
 			 (if (member nil al)
 			     nil
-			     (let ((tmp (loop for i in (car al) append (remove nil (loop for j in (reccomb (list (list i)) (cdr al)) collect (merge-sw j))))))
-			       (loop for r in (mapcar #'list (mapcar #'(lambda (x) (reduce #'+ (get-weight self (step-wind x (cover-value self)) :remanence remanence :test test))) tmp) tmp) collect r))))
+			     (let ((tmp (loop for i in (car al) append (remove nil (loop for j in (reccomb (list (list i)) (cdr al)) collect (merge-lw j))))))
+			       (loop for r in (mapcar #'list (mapcar #'(lambda (x) (reduce #'+ (get-weight self (loop-wind x (cover-value self)) :remanence remanence :test test))) tmp) tmp) collect r))))
 		       (let* ((tmp (chain-match self tournoi))
 			      (lt (loop for r in (mapcar #'list (get-weight self tmp :remanence remanence :test test) tmp) collect r))
 			      (htmp (make-hash-table :test #'equalp)))
@@ -348,11 +358,11 @@ The key :test manages the weights as a mean value by default."))
 				      (if (gethash subs htmp)
 					  (+ (gethash subs htmp) (car i))
 					  (car i)))))
-			 (loop for he in (hash-table-alist htmp) collect (list (cdr he) (car he)))))
+			 (loop for he in (ht htmp :al) collect (list (cdr he) (car he)))))
 		   (let ((tmp (search-space-in self tournoi)))
 		     (loop for r in (mapcar #'list (get-weight self tmp :remanence remanence :test test) tmp) collect r)))))
       (ordinate (mapcar #'list (mapcar #'float (normalize-sum (mapcar #'car res))) (mapcar #'cadr res)) #'> :key #'car))))
-      
+
 ;------------------------------------------------------------------
 ;                                                          LEARNING    
 
@@ -387,9 +397,15 @@ as arcs forming the tournoi when self is MLT, then a = tournoi = T (as integer) 
     (when (> (length smct) 1) (mapcar #'(lambda (l) (update-ht (arcs self) l sr)) (get-arc-from-tournoi smct)))
     (setf (mct self) trn)))
 
-(defmethod learn :after ((self mlt) &key seq)  
+(defmethod learn :after ((self mlt) &key seq)
   (when (and seq (fanaux-list self))
-    (add-edge self (position (car (last (car (nearest self (id (neuron-gagnant self)) :n-list (fanaux-list self) :d-list nil)))) (fanaux-list self)) (if (net self) (sensorial-rate (id (net self))) 1))))
+    (let ((pos (position (car (last (car (nearest self (id (neuron-gagnant self)) :n-list (fanaux-list self) :d-list nil)))) (fanaux-list self))))
+      ;;------------------------------
+      ;; experimental synapses-net ...
+      (update-ht (synapses-net self) (list (nth pos (fanaux-list self)) (neuron-gagnant self)) (if (net self) (sensorial-rate (id (net self))) 1))
+      (setf (fanaux-list self) (replace-a (neuron-gagnant self) pos (fanaux-list self)))
+      ;;------------------------------
+      (add-edge self pos (if (net self) (sensorial-rate (id (net self))) 1)))))
 
 ;------------------------------------------------------------------
 ;                                            NEXT-EVENT-PROBABILITY    

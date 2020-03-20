@@ -583,9 +583,6 @@ which lengths are successive values of the list <segmentation>.
 ;;==================================================================
 ;;             SYSTEMIC ANALYSIS Developmental process
 ;;==================================================================
-(defun loop-wind (seq wind)
-  (remove nil (maplist #'(lambda (x) (if (> wind (length x)) nil (subseq x 0 wind))) seq)))
-
 (defun get-match (head lw)
   (if head
       (loop for i in lw when (equalp (butlast i) head) collect i)

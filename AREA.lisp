@@ -207,7 +207,7 @@ In others word, clique = (index_fanal_SOM1 index_fanal_SOM2 ...)."
   (let* ((el (if (listp (car nodes)) (when (test-clique self nodes :as-nodes t) nodes) (when (test-clique self nodes) (loop for i in nodes for s from 0 when (integerp i) collect (list i s)))))
 	 (nht (arcs self))
 	 (ed (if (null el)
-		 (loop for key being the hash-keys of nht collect key)
+		 (ht nht :k)
 		 (loop for i in el collect (loop for key being the hash-keys of nht when (equalp i (car key)) collect key))))
 	 (cil (count-item-in-list (flat-once (flat-once (if (null el) (list ed) ed)))))
 	 (ped (loop for i in cil when (and (not (member (cadr i) el :test #'equalp)) (>= (car i) (length el))) collect (cadr i)))
@@ -221,8 +221,6 @@ In others word, clique = (index_fanal_SOM1 index_fanal_SOM2 ...)."
 
 ;------------------------------------------------------------------
 ;                                            NEXT-EVENT-PROBABILITY
-
-(defun list! (x) (if (listp x) x (list x)))
 
 (defun dispatch-combination (seqs &optional seq count res)
   (if (and seq count (= count (1- (length seqs))))
