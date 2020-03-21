@@ -402,7 +402,7 @@ as arcs forming the tournoi when self is MLT, then a = tournoi = T (as integer) 
     (let ((pos (position (car (last (car (nearest self (id (neuron-gagnant self)) :n-list (fanaux-list self) :d-list nil)))) (fanaux-list self))))
       ;;------------------------------
       ;; experimental synapses-net ...
-      (update-ht (synapses-net self) (list (nth pos (fanaux-list self)) (neuron-gagnant self)) (if (net self) (sensorial-rate (id (net self))) 1))
+      (update-ht (synapses-net self) (list (xpos (id (nth pos (fanaux-list self)))) (xpos (id (neuron-gagnant self)))) (if (net self) (sensorial-rate (id (net self))) 1))
       (setf (fanaux-list self) (replace-a (neuron-gagnant self) pos (fanaux-list self)))
       ;;------------------------------
       (add-edge self pos (if (net self) (sensorial-rate (id (net self))) 1)))))
