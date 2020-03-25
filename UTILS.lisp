@@ -31,6 +31,19 @@
 ;------------------------------------------------------------------
 ;                                                             UTILS
 
+
+(defgeneric normalize-data (data &key minval maxval lowerlimit upperlimit))
+(defmethod normalize-data ((data list) &key (minval (reduce #'min (flatten data))) (maxval (reduce #'max (flatten data))) (lowerlimit 0) (upperlimit 1))
+  (values
+   (mapcar #'(lambda (x) (normalize-data x :minval minval :maxval maxval :lowerlimit lowerlimit :upperlimit upperlimit)) data)
+   lowerlimit
+   upperlimit))
+
+(defmethod normalize-data ((data number) &key minval maxval lowerlimit upperlimit)
+  (+ lowerlimit (/ (* (- data minval) (- upperlimit lowerlimit)) (- maxval minval))))
+
+;;;  ;  ;;  ; ; ;; ; ; ; ;   ;
+
 (defvar *days* '("Monday" "Tuesday" "Wednesday" "Thursday" "Friday" "Saturday" "Sunday"))
 
 (defgeneric history (self &optional opt))
@@ -172,7 +185,9 @@ nodes = ((2 ? ? 1) nil); that means (car nodes) = tournoi with wild cards for ev
 	(mapcar #'(lambda (x) (mapcar #'(lambda (y) (append (list! x) (list! y))) (list! vals))) (list! (combx vals (1- n))))))))
 
 (defun all-combinations (vals n)
-  "From old PatchWork: it creates all combinations of the given list in vals with a length set in n."
+  "From old PatchWork: it creates all combinations of the given list in vals with a length set in n.
+Note that the length of the result is equal to n^r with n as the total number of objects and r the sample size. 
+Also, 'all-combinations' is a misnomer to refers in fact to an 'all-permutations-with-repetitions'."
   (let ((n (1- n)))
     (combx vals n)))
 
@@ -218,8 +233,8 @@ nodes = ((2 ? ? 1) nil); that means (car nodes) = tournoi with wild cards for ev
   (let ((nl lst))
     (loop for i in (list! sub) do (setf nl (remove i nl :test #'equalp))) nl))
 
-(defgeneric locate-cycle (nodes-lst &optional res))
-(defmethod locate-cycle ((nodes-lst list) &optional res)
+(defgeneric locate-cycle (nodes-lst &optional order res))
+(defmethod locate-cycle ((nodes-lst list) &optional order res)
   (if (< (length nodes-lst) 3)
       res
       (if (equalp (caar nodes-lst) (cadar nodes-lst))
@@ -234,12 +249,15 @@ nodes = ((2 ? ? 1) nil); that means (car nodes) = tournoi with wild cards for ev
 		      (loop for n in tmp never (node= n i :arcs 22))
 		      (not (node= (car tmp) (car (last tmp)) :arcs 21)))
 		   (push i tmp)))
-	    (if (and (> (length tmp) 2) (node= (car tmp) (car (last tmp)) :arcs 21))
-		(locate-cycle (rem-sublst tmp nodes-lst) (cons (reverse tmp) res))
-		(locate-cycle (cdr nodes-lst) res))))))
+	    (if (and
+		 (if (and (integerp order) (> order 2))
+		     (= (length tmp) order)
+		     (> (length tmp) 2))
+		 (node= (car tmp) (car (last tmp)) :arcs 21))
+		(locate-cycle (rem-sublst tmp nodes-lst) order (cons (reverse tmp) res))
+		(locate-cycle (cdr nodes-lst) order res))))))
 
-(defmethod locate-cycle ((nodes-lst hash-table) &optional res)
-  (locate-cycle (ht nodes-lst :k) res))
+(defmethod locate-cycle ((nodes-lst hash-table) &optional order res)
+  (locate-cycle (ht nodes-lst :k) order res))
 
 ;------------------------------------------------------------------
-

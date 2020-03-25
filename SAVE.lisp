@@ -41,8 +41,7 @@
 			   ((functionp val) 
 			    (let ((mvl (multiple-value-list (function-lambda-expression val))))
 			      (cond
-				((and (eq 'LAMBDA (caar mvl)) (not (listp (car (last mvl))))) (format stream " :~S #'~S" s (car (last mvl))))
-				((and (eq 'LAMBDA (caar mvl)) (eq 'LAMBDA (caar (last mvl)))) (format stream " :~S #'~S" s (car mvl)))
+				((listp (car (last mvl))) (format stream " :~S ~S" s (if (ml? val) (ml! val) val)))				
 				(t (format stream " :~S #'~S" s (car (last mvl)))))))
 			   (t (format stream " :~S (QUOTE ~S)" s val))))))
 	  (format stream ") N3::*AVAILABLE-SOM*)")
@@ -51,7 +50,6 @@
 	  (maphash (lambda (k v) (format stream "(SETF (GETHASH (QUOTE ~S) (FINE ~S)) ~S) " k (name self) v)) (fine self))
 	  (maphash (lambda (k v) (format stream "(SETF (GETHASH (QUOTE ~S) (TRNS ~S)) ~S) " k (name self) v)) (trns self))
 	  (maphash (lambda (k v) (format stream "(SETF (GETHASH (QUOTE ~S) (ARCS ~S)) ~S) " k (name self) v)) (arcs self))
-	  (maphash (lambda (k v) (format stream "(SETF (GETHASH (QUOTE ~S) (SYNAPSES-NET ~S)) ~S) " k (name self) v)) (synapses-net self))
 	  (maphash (lambda (k v) (format stream "(SETF (GETHASH (QUOTE ~S) (DATE-REPORT ~S)) ~S) " k (name self) v)) (date-report self))))
       (UIOP:run-program (format nil "sh -c '~S ~S'" *UPDATE-SAVED-NET* path)))))
 

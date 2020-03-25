@@ -68,11 +68,11 @@
   (setf (soms-list self) (mk-mlt-symbol-lst soms-list)
 	(gethash (get-universal-time) (date-report self)) (format nil "(init-area #<AREA ~a> '~a)" self soms-list)
 	(fanaux-length self) (loop for i in soms-list collect (length (fanaux-list (id i)))))
-  ;; for now the area name is display in each mlt net slot as self or as a list when a mtl belongs to more than one area. This will have to be managed for any further use.
-  (loop for i in soms-list 
-     do (setf (net i) 
-	      (let ((nt (net i)))
-		(if (null nt) self (cons self (if (listp nt) nt (list nt)))))))
+  ;; for now the area name is display in each mlt net slot as self.
+  ;; This instance will not work if one mlt needs to relate to another area.  
+  ;; This will be part of further development ...  
+    (loop for i in soms-list 
+     do (setf (net i) self))
   self)
 
 (defvar *available-area* '())
@@ -231,6 +231,9 @@ In others word, clique = (index_fanal_SOM1 index_fanal_SOM2 ...)."
 
 (defun trns-prob (clique al)
   (reduce #'* (mapcar #'cadr (loop for i in clique for j in al collect (assoc i (mapcar #'reverse j))))))
+
+(defun mat-trans (lst)
+  (apply #'mapcar #'list lst))
 
 (defmethod next-event-probability ((head list) (self area) &key (result :compute) remanence)
   (let ((al (loop for i in (mat-trans head) for net in (soms-list self) collect (next-event-probability i (id net) :remanence remanence :result :list))) 

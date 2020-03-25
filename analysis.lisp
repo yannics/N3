@@ -56,7 +56,7 @@ If needed add newline with #\Space in the data set."
 	(progn 
 	  (gnuplot> path :w w :h h :scale scale :fontsize fontsize :gnuplot gnuplot)
 	  (UIOP::run-program (format nil "sh -c '~S ~S'" display (concatenate 'string (directory-namestring path) (string (car (node-data self))) ".png"))))
-	(warn "This tree does not have any data file, to add it use the function dendrogram with the key :with-data set as t."))))
+	(warn "This tree does not have any data file, to add it use the function dendrogram with the key :and-data set as t."))))
 ;;------------------------------------------------------------------
 (defgeneric trim-tree (self tree n-class))
 (defmethod trim-tree ((self som) (tree node) (n-class integer))
@@ -432,67 +432,25 @@ For now tree has to be the node root."
      (apply #'levenshtein-distance (append (mapcar #'list2string (if root (mapcar #'rem-local-dup (mapcar #'complementary (apply #'serial-intersection (car *memcache*)) (mapcar #'string2list (car *memcache*)))) (mapcar #'complementary (apply #'serial-intersection (car *memcache*)) (mapcar #'string2list (car *memcache*))))) (list wl))))))
 ;;------------------------------------------------------------------
 ;; CAH with sub-structure as leave called event
-(defun update-tree-event (it)
-  (setf *memcache2* nil)
-  (loop for i in *tree* do (when (not (member i (car it) :test #'equalp)) (push i *memcache2*)))
-  (let ((distl (loop for i in (car it) when (not (leaf-p i)) collect (abs (read-value-by (node-label i)))))
-	(name (intern (format nil "~S" (cadr it)))))
-    (if (and distl (not (loop for d in distl never (> d (abs (read-value-by (cadr it)))))))
-	(let (nnode mnode)
-	  (cond ((leaf-p (caar it)) (setf nnode (cadar it) mnode (caar it)))
-		((leaf-p (cadar it)) (setf nnode (caar it) mnode (cadar it)))
-		((> (abs (read-value-by (node-label (caar it)))) (abs (read-value-by (node-label (cadar it))))) (setf nnode (caar it) mnode (cadar it)))
-		(t (setf nnode (cadar it) mnode (caar it))))
-	  (setf (node-child nnode) (append (node-child nnode) (if (leaf-p mnode) (list mnode) (node-child mnode))))
-	  (push nnode *memcache2*))
-	(push (setf (symbol-value name) (make-node :label name :child (car it))) *memcache2*)))   
-  (loop for n in (node-child (car *memcache2*)) do
-       (setf (node-parent n) (car *memcache2*)
-	     (node-dist n) (if (leaf-p n)
-			       (round (* (expt 10 *n-round*) (abs (read-value-by (node-label (car *memcache2*))))))
-			       (round (* (expt 10 *n-round*) (- (read-value-by (node-label n)) (read-value-by (node-label (car *memcache2*)))))))))
-  (setf *tree* *memcache2*))
 
-(defun mk-diss-event (pair fn-diss)
-  (let ((lst1 (get-leaves (car pair)))
-	(lst2 (get-leaves (cadr pair))))	
-    (let (r)
-      (loop for i in (loop for az in lst1 collect (read-value-by az))
-	 do
-	   (when (not (numberp i))
-	     (loop for j in (loop for az in lst2 collect (read-value-by az))
-		do
-		  (when (and (not (numberp j)) (not (eq i j)))
-		    (push
-		     (funcall fn-diss (format nil "~S" i) (format nil "~S" j))
-		     r)))))
-      (roundd r *n-round*))))
-
-(defun aggregate-event (lst a fn-diss)
-  "a = aggregation method:
-if a = 1 --> single linkage
-   a = 2 --> complete linkage"
-  (let* ((lst (all-pairs lst))
-         (res (loop for i in lst
-		 collect
-		   (case a
-		     (1 (cons (mini (mk-diss-event i fn-diss)) i))
-		     (2 (cons (maxi (mk-diss-event i fn-diss)) i)))))
-	 (result (reverse (assoc (loop for i in res minimize (car i)) res))))
-    (list (butlast result)
-	  (rec-if (* -1 (car (last result)))))))
-
-(defun dendro-event (lst a fn-diss) 
-  (let ((res (update-tree-event (aggregate-event lst a fn-diss)))) 
-    (if (= 1 (length res)) res
-	(dendro-event res a fn-diss))))
-
-(defmethod dendrogram ((self list) (aggregation integer) &key (diss-fun #'structure-distance) newick with-label with-data) ;; to save tree set with-data t
-  (setf *tree* '())
+(defmethod dendrogram ((self list) (aggregation integer) &key (diss-fun #'structure-distance) newick with-label and-data)
+  ;; self is a list of objects
+  ;; aggregation method -> only 1 or 2
+  ;; key :diss-fun set a function applicable to the objects of self -- defind as a and b if lambda function (use macro lambda* -- see package.lisp)
+  ;; key :newick to name the output file (string or symbol)
+  ;; key :and-data to save tree (boolean)
+  (setf
+   *event* (format nil "~A~A-~A" *N3-BACKUP-DIRECTORY* aggregation (if newick (string newick) "structure"))
+   *tree* '())
   (dolist (e self) (push (setf (symbol-value (intern (format nil "~S+" e))) (make-node :label e :data (string e))) *tree*))
-  (dendro-event *tree* aggregation diss-fun)
-  (setf (node-data (car *tree*)) (list self aggregation diss-fun (format nil "~S~SS" aggregation (car *tree*))))
-  (when with-data (save (car *tree*)))
+  (dendro *tree* aggregation diss-fun)
+  (setf (node-data (car *tree*)) (list self aggregation
+				       (let ((mvl (multiple-value-list (function-lambda-expression diss-fun))))
+					 (cond
+					   ((listp (car (last mvl))) diss-fun)				
+					   (t (read-from-string (format nil "#'~S" (car (last mvl)))))))
+				       (format nil "*EVENT*")))
+  (when and-data (save (car *tree*)))
   (with-open-file (stream (make-pathname :directory (pathname-directory *N3-BACKUP-DIRECTORY*)
 					   :name ".tmp"
 					   :type "nw")
@@ -500,11 +458,13 @@ if a = 1 --> single linkage
 			    :if-exists :supersede
 			    :if-does-not-exist :create)
     (format stream "~S" (list (tree>nw (car *tree*) :with-label with-label))))
-  (UIOP::run-program (format nil "sh -c '~S ~S ~S'" (format nil "~Abin/raw2nw" *NEUROMUSE3-DIRECTORY*) (format nil "~A.tmp.nw" *N3-BACKUP-DIRECTORY*) (format nil "~A~A-~A.nw" *N3-BACKUP-DIRECTORY* aggregation (if newick (string newick) "structure"))))
-  (setf *tree* (car *tree*)))
+  (UIOP::run-program (format nil "sh -c '~S ~S ~S'" (format nil "~Abin/raw2nw" *NEUROMUSE3-DIRECTORY*) (format nil "~A.tmp.nw" *N3-BACKUP-DIRECTORY*) (concatenate 'string *event* ".nw")))
+  (setf
+   *event* nil
+   *tree* (car *tree*)))
 ;;------------------------------------------------------------------
 ;;(dendrogram '(EEEB BEEC CBEAEB BAEC CBEBDD DDDADADDA CBEBDADDDA DADDB BCBEBADBA BCED DDDABBBBD BCCBA EA BEAEC CBA CBBAECB BBADA BBABC CDA BEBBABC CEEA ABD BAA CCBA CBBAA CBC ADA BDDE CED) 1)
-;;(dendrogram '(EEEB BEEC CBEAEB BAEC CBEBDD DDDADADDA CBEBDADDDA DADDB BCBEBADBA BCED DDDABBBBD BCCBA EA BEAEC CBA CBBAECB BBADA BBABC CDA BEBBABC CEEA ABD BAA CCBA CBBAA CBC ADA BDDE CED) 2 :diss-fun '(structure-distance :root t) :newick "root")
+;;(dendrogram '(EEEB BEEC CBEAEB BAEC CBEBDD DDDADADDA CBEBDADDDA DADDB BCBEBADBA BCED DDDABBBBD BCCBA EA BEAEC CBA CBBAECB BBADA BBABC CDA BEBBABC CEEA ABD BAA CCBA CBBAA CBC ADA BDDE CED) 2 :diss-fun #'(lambda (a b) (structure-distance a b :root t)) :newick "root" :and-data t)
 ;;==================================================================
 ;;           SYSTEMIC ANALYSIS Derivative clustering
 ;;==================================================================

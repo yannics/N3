@@ -24,8 +24,6 @@
     :initform (make-hash-table :test #'equalp) :initarg :trns :accessor trns)
    (arcs
     :initform (make-hash-table :test #'equalp) :initarg :arcs :accessor arcs)
-   (synapses-net
-    :initform (make-hash-table :test #'equalp) :initarg :synapses-net :accessor synapses-net)
    (mem-cache
     :initform nil :initarg :mem-cache :accessor mem-cache)))
 
@@ -53,12 +51,10 @@
 (defgeneric set-fanaux-list (self new-fanaux-list))
 (defmethod set-fanaux-list ((self mlt) (nfl list))
   (if (net self)
-      (if (listp (net self))
-	  (mapcar #'(lambda (x) (set-fanaux-list (id x) nfl)) (net self))
-	  (let* ((area (id (net self)))
+      (let* ((area (id (net self)))
 		 (som-index (position self (loop for i in (soms-list area) collect (id i)) :test #'equalp)))
 	    (setf (fanaux-list self) nfl
-		  (fanaux-length area) (substitute-nth (length nfl) som-index (fanaux-length area)))))
+		  (fanaux-length area) (substitute-nth (length nfl) som-index (fanaux-length area))))
       (setf (fanaux-list self) nfl)))
 
 (defun node= (e1 e2 &key arcs)
@@ -310,6 +306,11 @@ The key :test manages the weights as a mean value by default."))
 (defmethod chain-match ((self mlt) (chain list))
   (loop for i in (ht (trns self) :k) when (search chain i :test #'(lambda (a b) (or (eq a '?) (= a b)))) collect i))
 
+(defun mean (xlst &optional wlst)
+  (if wlst
+      (float (/ (apply #'+ (mapcar #'* xlst wlst)) (apply #'+ wlst)))
+      (float (/ (apply #'+ xlst) (length xlst)))))
+
 (defmethod get-weight ((self mlt) (chain-list list) &key (remanence t) (test #'mean)) ;; chain-list = result of locate-tournoi
   (if remanence
       (loop for i in chain-list collect (gethash i (trns self)))
@@ -400,11 +401,6 @@ as arcs forming the tournoi when self is MLT, then a = tournoi = T (as integer) 
 (defmethod learn :after ((self mlt) &key seq)
   (when (and seq (fanaux-list self))
     (let ((pos (position (car (last (car (nearest self (id (neuron-gagnant self)) :n-list (fanaux-list self) :d-list nil)))) (fanaux-list self))))
-      ;;------------------------------
-      ;; experimental synapses-net ...
-      (update-ht (synapses-net self) (list (xpos (id (nth pos (fanaux-list self)))) (xpos (id (neuron-gagnant self)))) (if (net self) (sensorial-rate (id (net self))) 1))
-      (setf (fanaux-list self) (replace-a (neuron-gagnant self) pos (fanaux-list self)))
-      ;;------------------------------
       (add-edge self pos (if (net self) (sensorial-rate (id (net self))) 1)))))
 
 ;------------------------------------------------------------------

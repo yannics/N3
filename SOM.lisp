@@ -16,6 +16,8 @@
     sym))
 
 (defgeneric id (self))
+(defmethod id ((self list)) self)
+(defmethod id ((self number)) self)
 (defmethod id ((self t)) (symbol-value self))
 
 ;------------------------------------------------------------------
@@ -26,12 +28,14 @@
     :initform nil :initarg :name :accessor name)
    (net
     :initform nil :initarg :net :accessor net) ;; (RNA name which the neuron belongs)
+   (ind
+    :initform nil :initarg :ind :accessor ind) ;; index position in the RNA neurons-list
    (xpos
     :initform nil :initarg :xpos :accessor xpos)
-   (synapses-list
-    :initform nil :initarg :synapses-list :accessor synapses-list)
    (temperature
     :initform 0.01 :initarg :temperature :accessor temperature :type number) ;; noise rate
+   (synapses-list
+    :initform nil :initarg :synapses-list :accessor synapses-list)
    (erreur
     :initform nil :initarg :erreur :accessor erreur) ;; current error (after activation)
    (output
@@ -74,9 +78,9 @@
    (input
     :initform nil :initarg :input :accessor input)
    (radius
-    :initform 6 :initarg :radius :accessor radius :type number) 
+    :initform 0.1 :initarg :radius :accessor radius :type number) 
    (learning-rate
-    :initform 0.1 :initarg :learning-rate :accessor learning-rate :type number)
+    :initform 0.01 :initarg :learning-rate :accessor learning-rate :type number)
    (date-report
     :initform (make-hash-table) :initarg :date-report :accessor date-report)
    (epoch
@@ -111,13 +115,13 @@
   ((neuron-gagnant
     :initform nil :initarg :neuron-gagnant :accessor neuron-gagnant)
    (distance-in
-    :initform #'euclidean :initarg :distance-in :accessor distance-in :type function)
+    :initform (lambda* (a b) (euclidean a b :position t)) :initarg :distance-in :accessor distance-in :type function) 
    (distance-out
     :initform #'euclidean :initarg :distance-out :accessor distance-out :type function)
    (voisinage
     :initform #'gauss :initarg :voisinage :accessor voisinage :type function)
    (carte
-    :initform #'rand-map :initarg :carte :accessor carte :type function)
+    :initform #'rnd-map :initarg :carte :accessor carte :type function)
    (field
     :initform nil :initarg :field :accessor field)
    (topology
@@ -151,6 +155,7 @@
     (dotimes (e nn (setf (neurons-list self) (nreverse (neurons-list self))))
       (push (make-instance 'neuron
 			   :name (read-from-string (string (gensym (format nil "NEURON-"))))
+			   :ind e
 			   :xpos (nth e q-lst)
 			   :net (name self))
 	    (neurons-list self)))
@@ -162,7 +167,7 @@
 (defmethod init-som :after ((self som) (nbre-input integer) (nbre-neurons integer) &key carte topology field)
   (declare (ignore carte topology field))
   (dolist (e (neurons-list self))
-    (setf (output e) (loop repeat nbre-input collect (random (temperature e)))))
+    (setf (output e) (loop repeat nbre-input collect (random 1.0))))
   (values self))
 
 ;------------------------------------------------------------------
@@ -173,9 +178,8 @@
 
 (defmethod activation ((self neuron) &key seq)
   (declare (ignore seq))
-  (let ((net (id (net self)))
-	(temperature (temperature self)))
-    (setf (erreur self) (+ (if (zerop temperature) 0 (random temperature)) (funcall (distance-out net) net self)))
+  (let ((net (id (net self))))
+    (setf (erreur self) (funcall (distance-out net) net self))
     (values)))
 
 (defmethod activation ((self som) &key seq)
@@ -195,30 +199,22 @@
                   
 (defgeneric learn (self &key seq))
 
-(defun mean (xlst &optional wlst)
-  (if wlst
-      (float (/ (apply #'+ (mapcar #'* xlst wlst)) (apply #'+ wlst)))
-      (float (/ (apply #'+ xlst) (length xlst)))))
-
-(defun mat-trans (lst)
-  (apply #'mapcar #'list lst))
-
 (defmethod learn ((self som) &key seq)
-  (declare (ignore seq))
   (setf (neuron-gagnant self)
-	(winner self)) 
+	(winner self))
   ;; neighbourhood correction
-  (loop for n in (neurons-list self) do   
-       (let ((dist (funcall (distance-in self) (id (neuron-gagnant self)) n :position t))
-	     (sl))
-	 (when (<= dist (radius self))
-	   (let ((correction (funcall (voisinage self) dist (radius self) (learning-rate self))))
-	     (dotimes (i (nbre-input self) (setf (output n) (nreverse sl)))
-	       (push (+ (nth i (output n)) 
-			(* correction
-			   (- (nth i (input self))
-			      (nth i (output n))))) sl)))))) 
-  (setf (epoch self) (1+ (epoch self)))
+  (unless seq
+    (loop for n in (neurons-list self) do   
+	 (let ((dist (funcall (distance-in self) (id (neuron-gagnant self)) n))
+	       (sl))
+	   (when (<= dist (radius self))
+	     (let ((correction (funcall (voisinage self) dist (radius self) (learning-rate self))))
+	       (dotimes (i (nbre-input self) (setf (output n) (nreverse sl)))
+		 (push (+ (nth i (output n)) 
+			  (* correction
+			     (- (nth i (input self))
+				(nth i (output n))))) sl)))))) 
+    (setf (epoch self) (1+ (epoch self))))
   (values))
 
 ;------------------------------------------------------------------

@@ -1,6 +1,7 @@
 #!/bin/bash
 
 dir=$(dirname $1)
+opt=${2:-0}
 
 # reduce-saved-file
 cat $1 | sed 's/  */\ /g' > $dir/.tmp.lisp
@@ -15,7 +16,7 @@ $dirscript/add-icns/SetCustomIcon $1 $dirscript/add-icns/N3.icns
 # ---
 filename=$(basename $1)
 ext="${filename##*.}"
-if [[ "tree" = "$ext" ]]; then
+if [[ "tree" = "$ext" ]] && [ 0 == $opt ]; then
     # add-empty-folder
     name=`basename $1 | perl -pe 's/(.*)\..*$/$1/;s{^.*/}{}'`
     if [ ! -d $dir/$name ]; then mkdir $dir/$name

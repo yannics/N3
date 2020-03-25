@@ -31,7 +31,7 @@
       (t (warn "Display command line not listed.")))
 ;++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
-(defvar *latency* 0.1)
+(defvar *latency* 0.01)
 
 ;------------------------------------------------------------------
 ;                                                  mapping function
@@ -71,8 +71,8 @@
       (if (= (length tmp) (length (remove-duplicates tmp :test #'equalp))) tmp (quadrare self nbre-neurons :about (1+ after-comma) :topology n-dim)))))
 
 ;;  multidimentionnelle random map
-(defgeneric rand-map (self nbre-neurons &key about topology))
-(defmethod rand-map ((self som) (nbre-neurons integer) &key about topology)
+(defgeneric rnd-map (self nbre-neurons &key about topology))
+(defmethod rnd-map ((self som) (nbre-neurons integer) &key about topology)
   (let* ((n-dim (if topology topology 2))
 	 (field (cond
 		  ((numberp (field self)) (loop repeat n-dim collect (field self)))
@@ -84,7 +84,7 @@
 	  (topology self) n-dim)
     (loop for i from 1 to nbre-neurons
        do (push (let (r) (dotimes (e n-dim r) (push (let ((rnd (/ (random (* (expt 10 after-comma) (nth e field))) (expt 10 after-comma)))) (if (= rnd (round rnd)) (round rnd) (float rnd))) r))) s))
-    (if (= (length s) (length (remove-duplicates s :test #'equalp))) s (rand-map self nbre-neurons :about (1+ after-comma) :topology n-dim))))
+    (if (= (length s) (length (remove-duplicates s :test #'equalp))) s (rnd-map self nbre-neurons :about (1+ after-comma) :topology n-dim))))
 
 ;------------------------------------------------------------------
 ;                                                proximity function
@@ -166,12 +166,9 @@
 
 ;; three arguments (epoch, initial-value, learning-time) ...
 
-(defun exp-decay (epoch initial-value learning-time &optional final-value)
+(defun exp-decay (epoch initial-value learning-time &optional (final-value 0.01))
   "The final value has to be different of the initial value (to avoid division by zero). 
 When the final value is superior to initial value, the function becomes increasing."
-  (* initial-value (exp (/ epoch (/ learning-time (log (/ (if (numberp final-value) final-value 1) initial-value)))))))
+  (* initial-value (exp (/ epoch (/ learning-time (log (/ final-value initial-value)))))))
 
 ;------------------------------------------------------------------
-
-    
-    
