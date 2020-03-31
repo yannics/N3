@@ -82,22 +82,23 @@
   (if (null (node-parent self)) self (get-root (id (node-parent self)))))
 
 (defmethod get-leaves ((self node) &key trim loop)
+  (print self)
   "Get the list of leaves of a given node.
 - trim = nil: collect all leaves of the tree or the subtree (equivalent to prune) of a given node.
 - trim = <distance/node>: remove nodes beyond a given distance or a given node and collect all leaves from the root."
   ;; leaves collector initialisation
   (when (null loop) (setf *memcache1* nil))
   (labels ((rec (node tr) (loop for i in (node-child node) collect (get-leaves (id i) :trim tr :loop t))))
-    (if (null trim)
-	(let ((copy-node (make-node :label (node-label self) :child (node-child self) :data (node-data self))))
-	  (get-leaves copy-node :trim 1))
+    (if (or (node-p trim) (numberp trim)) 
 	(if (leaf-p self)
 	    (push self *memcache1*)
-	    (if trim
-		(if (> (* (expt 10 *n-round*) (abs (read-value-in (node-label self)))) (cond ((node-p trim) (1- (* (expt 10 *n-round*) (abs (read-value-in (node-label trim)))))) ((numberp trim) trim) (t (error "The key trim has to be a number or a node."))))
-		    (rec self trim)
-		    (push self *memcache1*))
-		(rec self trim)))))
+	    (if (> (* (expt 10 *n-round*) (abs (read-value-in (node-label self))))
+		   (if (node-p trim)
+		       (1- (* (expt 10 *n-round*) (abs (read-value-in (node-label trim)))))
+		       trim))
+		(rec self trim)
+		(push self *memcache1*)))
+	(get-leaves self :trim 1)))
   ;; output leaves list
   *memcache1*)
 #|
@@ -146,57 +147,57 @@
 			       (round (* (expt 10 *n-round*) (- (read-value-in (node-label n)) (read-value-in (node-label (car *memcache2*)))))))))
   (unless *event*
     (dolist (e *memcache2*)
-		  (when (null (node-inertia e))
-		    (setf (node-inertia e)
+		  (setf (node-inertia e)
 			  (let* ((al (mapcar #'node-data (get-leaves e))))
 			    (gravity-center al +GA+)
 			    (/ (loop for l in al sum
 				    (expt
 				     (funcall fn-diss +GA+ l) 2))
-			       (length al)))))))
+			       (length al))))))
   (setf *tree* *memcache2*))
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
 
 (defmethod history ((self node) &optional res)
-  (let ((gl (get-leaves (get-root self) :trim (1- (round (* (expt 10 *n-round*) (abs (read-value-in (node-label self)))))))))
-    (if (loop for l in gl always (leaf-p l))
-	(reverse res)
-	(let* ((sl (loop for i in gl unless (leaf-p i) collect i))
-	       (wn (car (ordinate sl #'> :key #'(lambda (x) (abs (read-value-in (node-label x))))))))
-	  (history (id wn)
-		   (push
-		    (list
-		     gl
-		     (if (leaf-p self) 0.0
+  (if res
+      (let ((gl (get-leaves (get-root self) :trim (1- (round (* (expt 10 *n-round*) (abs (read-value-in (node-label self)))))))))
+	(if (loop for l in gl always (leaf-p l))
+	    (append (reverse (butlast res)) (last res))
+	    (let* ((sl (loop for i in gl unless (leaf-p i) collect i))
+		   (wn (car (ordinate sl #'> :key #'(lambda (x) (abs (read-value-in (node-label x))))))))
+	      (history (id wn)
+		       (cons
+			(list
+			 gl
 			 ;; get the minimum distance between the set of nodes and their common parent.
-			 (- (abs (read-value-in (node-label self))) (abs (read-value-in (node-label wn)))))
-		     ;; intra-class inertia as sum of all intra-class inertia from sl (trim). 
-		     (reduce #'+ (mapcar #'node-inertia sl))
-		     )
-		    res))))))
+			 (- (abs (read-value-in (node-label self))) (abs (read-value-in (node-label wn))))
+			 ;; intra-class inertia as sum of all intra-class inertia from sl (trim). 
+			 (reduce #'+ (mapcar #'node-inertia sl))
+			 )
+			res)))))
+      (history (get-root self) (cons (list (get-leaves (get-root self)) 0.0 0.0) nil))))
 
 (defgeneric neuron>ind (self))
 (defmethod neuron>ind ((self node)) (if (neuron-p (id (read-value-in self))) (read-from-string (format nil "~S+" (neuron>ind (id (read-value-in self))))) self))
-(defmethod neuron>ind ((self neuron)) (ind self))
+(defmethod neuron>ind ((self neuron)) (+ 10 (ind self)))
 (defmethod neuron>ind ((self t)) self)
 (defgeneric neuron<ind (self n))
 (defmethod neuron<ind ((self rna) (n node)) (if (integerp (read-value-in n)) (read-from-string (format nil "~S+" (neuron<ind self (read-value-in n)))) n))
-(defmethod neuron<ind ((self rna) (n integer)) (id (nth n (neurons-list self))))
+(defmethod neuron<ind ((self rna) (n integer)) (id (nth (- n 10) (neurons-list self))))
 (defmethod neuron<ind ((self rna) (n t)) n)
 
 (defmethod save ((self node))
   (let ((path
 	 (if *event*
 	     (concatenate 'string *event* ".tree")
-	     (format nil "~A~A/~A~A~A.tree" *N3-BACKUP-DIRECTORY* (car (node-data self)) (cadr (node-data self)) (node-label self) (epoch (id (car (node-data self))))))))
+	     (format nil "~A~A/~A~A~A.tree" *N3-BACKUP-DIRECTORY* (car (node-data self)) (cadr (node-data self)) (node-label self) (epoch (id (read-from-string (car (node-data self)))))))))
     (unless *event* (ensure-directories-exist (format nil "~A~A/" *N3-BACKUP-DIRECTORY* (car (node-data self)))))
     (progn
       (with-open-file (stream path
 			      :direction :output
 			      :if-exists :supersede
 			      :if-does-not-exist :create)
-	;-----------------------
+	;-----------------------  
 	(loop for n in (cons self (remove-duplicates (flatten (mapcar #'car (history self))) :test #'equalp))
 	   do
 	     (format stream "(DEFPARAMETER ~S (MAKE-NODE :LABEL (QUOTE ~S) :CHILD (QUOTE ~S) :PARENT (QUOTE ~S) :DIST (QUOTE ~S) :INERTIA (QUOTE ~S) :DATA ~S)) "
@@ -206,10 +207,9 @@
 		     (neuron>ind (id (node-parent n)))
 		     (node-dist n)
 		     (node-inertia n)
-		     (neuron>ind (id (node-data n)))))
+		     (if (and (listp (node-data n)) (not (null (node-data n)))) (cons 'list (node-data n)) (neuron>ind (id (node-data n))))))
 	;-----------------------
-	(format stream "(SETF *TREE* ~S) " self)
-	(unless *event* (format stream "(IF (MEMBER (BOUND-TEST (ID ~S)) *AVAILABLE-SOM*) (lOOP FOR N IN (CONS *TREE* (REMOVE-DUPLICATES (FLATTEN (MAPCAR #'CAR (HISTORY *TREE*))) :TEST #'EQUALP)) DO (LET ((RNA (ID ~S))) (SETF (NODE-LABEL N) (NEURON<IND RNA (ID NODE-LABEL N)) (NODE-CHILD N) (LOOP FOR I IN (NODE-CHILD N) COLLECT (NEURON<IND RNA (ID I))) (NODE-DATA N) (NEURON<IND RNA (ID (NODE-DATA N)))))) (LET ((FILE (FORMAT NIL \"~~A~S.som\" *N3-BACKUP-DIRECTORY*))) (IF (OPEN FILE :IF-DOES-NOT-EXIST NIL) (LOAD-NEURAL-NETWORK FILE) (WARN \"This tree has been built from the neural network ~S. The latter should be loaded ...\"))))" (car (node-data self)) (car (node-data self)) (car (node-data self)) (car (node-data self)))))
+	(format stream "(SETF *TREE* ~S)" self))
       (UIOP:run-program (format nil "sh -c '~S ~S ~S'" *UPDATE-SAVED-NET* path (if *event* 1 0))))))
 
 (defun split-path (string)
@@ -234,6 +234,7 @@
   (let* ((stdout (format nil "~a" (UIOP:run-program (format nil "sh -c 'cd ~S; find . -type f -name \"*.tree\"'" *N3-BACKUP-DIRECTORY*) :output :string)))
 	 (items (string-to-list stdout)))
     (when items
+      (format t ";---------------~%")
       (dotimes (item-number (length items))
 	(format t "~45<~A: ~A ...~;... ~A~>~%" (+ item-number 1)
 		(cadr (reverse (split-path (string (nth item-number items)))))
@@ -242,8 +243,18 @@
       (format t "Load (Type any key to escape): ")
       (let ((val (read))) 
 	(when (member val (loop for i from 1 to (length items) collect i))
-	  (load (concatenate 'string *N3-BACKUP-DIRECTORY* (subseq (string (nth (- val 1) items)) 2 (- (length (string (nth (- val 1) items))) 4)) "tree"))
-	  (format t "~45<TREE[~A] ...~;... loaded ...~>~%" (tff (string (caddr (split-path (string (nth (1- val) items))))))))))))
+	  (let* ((dir (concatenate 'string *N3-BACKUP-DIRECTORY* (subseq (string (nth (- val 1) items)) 2 (- (length (string (nth (- val 1) items))) 4)) "tree"))
+		 (rna (read-from-string (caddr (reverse (split-path dir))))))
+	    (if (som-p (id rna))
+		(progn
+		  (UIOP:run-program (format nil "sh -c 'cd ~A; cp ~A .tmp'" (directory-namestring dir) dir))
+		  (loop for i in (neurons-list (id rna))
+		     do
+		       (UIOP:run-program (format nil "sh -c 'cd ~A; cat .tmp | sed \"s/ ~S+/ ~S+/g; s/(~S+/(~S+/g; s/:DATA ~S)/:DATA (QUOTE ~S))/g\" > .foo; mv .foo .tmp'" (directory-namestring dir) (neuron>ind (id i)) (neuron<ind (id rna) (id i)) (neuron>ind (id i)) (neuron<ind (id rna) (id i)) (neuron>ind (id i)) (neuron<ind (id rna) (id i)))))
+		  (load (concatenate 'string (directory-namestring dir) ".tmp"))
+		  (format t "~45<TREE[~A] ...~;... loaded ...~>~%" (tff (string (caddr (split-path (string (nth (1- val) items)))))))
+		  (UIOP:run-program (format nil "sh -c 'cd ~A; rm .tmp'" (directory-namestring dir))))
+		(warn "This tree has been built from the neural network ~S. The latter should be loaded first ..." rna))))))))
 
 ;------------------------------------------------------------------
 ;                                                        DENDROGRAM
@@ -314,10 +325,10 @@ For now tree has to be the node root."
    *tree* '())
   (dolist (e (neurons-list self)) (push (setf (symbol-value (intern (format nil "~S+" e))) (make-node :label (read-from-string (format nil "~A+" e)) :data (id e))) *tree*))
   (dendro *tree* aggregation diss-fun)
-  (setf (node-data (car *tree*)) (list (name self) aggregation
+  (setf (node-data (car *tree*)) (list (format nil "~S" self) aggregation
 				       (let ((mvl (multiple-value-list (function-lambda-expression diss-fun))))
 					 (cond
-					   ((listp (car (last mvl))) (if (ml? diss-fun) (ml! diss-fun) diss-fun))				
+					   ((listp (car (last mvl))) diss-fun)				
 					   (t (read-from-string (format nil "#'~S" (car (last mvl)))))))
 				       (format nil "~S~S~S" aggregation (car *tree*) (epoch self))))
   (when newick
@@ -341,5 +352,3 @@ For now tree has to be the node root."
 ;------------------------------------------------------------------
 
 
-
-    

@@ -37,7 +37,9 @@
 	   :QUADRARE
 	   :RND-MAP
 
-	   :LAMBDA*))
+	   :LAMBDA*
+	   :SCALING
+	   :MAPPING))
 
 (in-package :N3)
 (setf *random-state* (make-random-state t))

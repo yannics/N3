@@ -24,6 +24,8 @@
     :initform (make-hash-table :test #'equalp) :initarg :trns :accessor trns)
    (arcs
     :initform (make-hash-table :test #'equalp) :initarg :arcs :accessor arcs)
+   (data-scale
+    :initform nil :initarg :data-scale :accessor data-scale) ; to retrieve initial data values
    (mem-cache
     :initform nil :initarg :mem-cache :accessor mem-cache)))
 

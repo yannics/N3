@@ -18,7 +18,7 @@
 (defgeneric id (self))
 (defmethod id ((self list)) self)
 (defmethod id ((self number)) self)
-(defmethod id ((self t)) (symbol-value self))
+(defmethod id ((self t)) (when (boundp self) (symbol-value self)))
 
 ;------------------------------------------------------------------
 ;                                                            NEURON             
@@ -161,7 +161,7 @@
 	    (neurons-list self)))
     (setf (nbre-neurons self) nn
 	  (nbre-input self) nbre-input
-	  (gethash (get-universal-time) (date-report self)) (format nil "(init-som #<RNA ~a> ~a ~a :carte '~a :topology ~a :field ~a)" self nbre-input nbre-neurons (carte self) (topology self) (if (listp (field self)) (cons 'quote (field self)) (field self)))))
+	  (gethash (get-universal-time) (date-report self)) (format nil "(init-som #<RNA ~a> ~a ~a :carte #<FUNCTION ~a> :topology ~a :field ~a)" self nbre-input nbre-neurons (let ((mvl (multiple-value-list (function-lambda-expression (carte self))))) (cond ((listp (car (last mvl))) (format nil "~S" (if (ml? (carte self)) (ml! (carte self)) (carte self)))) (t (format nil "~S" (car (last mvl)))))) (topology self) (field self))))
   (values self))
 
 (defmethod init-som :after ((self som) (nbre-input integer) (nbre-neurons integer) &key carte topology field)

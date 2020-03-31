@@ -55,7 +55,7 @@ If needed add newline with #\Space in the data set."
     (if (probe-file path)
 	(progn 
 	  (gnuplot> path :w w :h h :scale scale :fontsize fontsize :gnuplot gnuplot)
-	  (UIOP::run-program (format nil "sh -c '~S ~S'" display (concatenate 'string (directory-namestring path) (string (car (node-data self))) ".png"))))
+	  (UIOP::run-program (format nil "sh -c '~S ~S'" display (concatenate 'string (directory-namestring path) (car (node-data self)) ".png"))))
 	(warn "This tree does not have any data file, to add it use the function dendrogram with the key :and-data set as t."))))
 ;;------------------------------------------------------------------
 (defgeneric trim-tree (self tree n-class))
@@ -444,7 +444,7 @@ For now tree has to be the node root."
    *tree* '())
   (dolist (e self) (push (setf (symbol-value (intern (format nil "~S+" e))) (make-node :label e :data (string e))) *tree*))
   (dendro *tree* aggregation diss-fun)
-  (setf (node-data (car *tree*)) (list self aggregation
+  (setf (node-data (car *tree*)) (list (string self) aggregation
 				       (let ((mvl (multiple-value-list (function-lambda-expression diss-fun))))
 					 (cond
 					   ((listp (car (last mvl))) diss-fun)				

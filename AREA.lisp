@@ -65,15 +65,16 @@
   (loop for i in lst do (push (id i) r)) (reverse r))
 
 (defmethod init-area ((self area) (soms-list list))
-  (setf (soms-list self) (mk-mlt-symbol-lst soms-list)
-	(gethash (get-universal-time) (date-report self)) (format nil "(init-area #<AREA ~a> '~a)" self soms-list)
-	(fanaux-length self) (loop for i in soms-list collect (length (fanaux-list (id i)))))
-  ;; for now the area name is display in each mlt net slot as self.
-  ;; This instance will not work if one mlt needs to relate to another area.  
-  ;; This will be part of further development ...  
+  (when (loop for s in soms-list always (mlt-p (id s)))
+    (setf (soms-list self) soms-list
+	  (gethash (get-universal-time) (date-report self)) (format nil "(init-area #<AREA ~a> #<SL (~{~a~^ ~})>)" self soms-list)
+	  (fanaux-length self) (loop for i in soms-list collect (length (fanaux-list (id i)))))
+    ;; for now the area name is display in each mlt net slot as self.
+    ;; This instance will not work if one mlt needs to relate to another area.  
+    ;; This will be part of further development ...  
     (loop for i in soms-list 
-     do (setf (net i) self))
-  self)
+       do (setf (net (id i)) self))
+    self))
 
 (defvar *available-area* '())
 
@@ -105,7 +106,7 @@
 
 ;;------------------------------
 (defgeneric read-data (self data))
-(defmethod read-data ((self mlt) (data list)) (when (loop for i in data always (= (nbre-input self) (length i))) data))
+(defmethod read-data ((self mlt) (data list)) (when (loop for i in data always (= (nbre-input self) (length i))) (scaling data :mlt self)))
 (defmethod read-data ((self mlt) (file string)) (read-data self (read-file file)))
 (defmethod read-data ((self mlt) (file pathname)) (read-data self (read-file (namestring file))))
 (defmethod read-data ((self mlt) (data null)) (declare (ignore self data)) nil)

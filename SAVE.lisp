@@ -82,9 +82,6 @@
         when (equalp item i)
         collect position))
 
-(defun bound-test (symbol)
-  (if (boundp symbol) (symbol-value symbol) symbol))
-
 (defun load-neural-network (nn &key only-area)
   "nn is a string meaning neural network.
    Just write full pathname of nn
@@ -100,12 +97,12 @@
     (if (open file :if-does-not-exist nil)
 	(let ((tn (pathname-type (pathname file)))
 	      (nn (pathname-name (pathname file))))	
-	  (cond ((equalp tn "som") (if (member (bound-test (read-from-string nn)) *AVAILABLE-SOM* :test #'equalp)
+	  (cond ((equalp tn "som") (if (member (read-from-string nn) *AVAILABLE-SOM* :test #'equalp)
 				       (warn "There is already a SOM called ~A in *AVAILABLE-SOM*. Consequently, this SOM has not been loaded." nn)
 				       (progn (load file)
 					      (format t "~45<~A.~(~a~) ...~;... loaded ...~>~%" nn tn))))
 		((equalp tn "area") (if only-area
-					(if (member (bound-test (read-from-string nn)) *AVAILABLE-AREA* :test #'equalp)
+					(if (member (read-from-string nn) *AVAILABLE-AREA* :test #'equalp)
 					    (warn "There is already an AREA called ~A in *AVAILABLE-AREA*. Consequently, this AREA has not been loaded." nn)
 					    (progn (load file)
 						   (format t "~45<~A.~(~a~) ...~;... loaded ...~>~%" nn tn)))
@@ -121,7 +118,7 @@
 					      (progn
 						(loop for s in sl do (load-neural-network (format nil "~A~S.som" dir s)))
 						(if (equalp (loop for l in il collect (if (null l) 0 l)) (loop for s in sl collect (length (fanaux-list (id s)))))
-						    (if (member (bound-test (read-from-string nn)) *AVAILABLE-AREA* :test #'equalp)
+						    (if (member (read-from-string nn) *AVAILABLE-AREA* :test #'equalp)
 							(warn "There is already an AREA called ~A in *AVAILABLE-AREA*. Consequently, this AREA has not been loaded." nn)
 							(progn (load file)
 							       (format t "~45<~A.~(~a~) ...~;... loaded ...~>~%" nn tn)))

@@ -31,24 +31,55 @@
 ;------------------------------------------------------------------
 ;                                                             UTILS
 
+(defgeneric scaling (data &key minin maxin minout maxout mlt data-type))
+(defmethod scaling ((data list) &key minin maxin minout maxout mlt data-type)
+  (if (mlt-p (id mlt))
+      (case data-type
+	;; normalize data by dimension
+	(:dim (progn (setf (data-scale (id mlt)) (loop for d in (mat-trans data) collect (list (reduce #'min (flatten d)) (reduce #'max (flatten d))))) (mat-trans (loop for d in (mat-trans data) collect (scaling d)))))
+	;; 0/1
+	(:bin (progn (setf (data-scale (id mlt)) 0) (loop for d in data collect (mapcar #'(lambda (x) (if (> x 0.5) 1 0)) d))))
+	;; normalize data by event
+	(:std (progn (setf (data-scale (id mlt)) 1) (loop for d in data collect (scaling d))))
+	;; normalize flatten data 
+	(:flat (progn (setf (data-scale (id mlt)) (list (if minin minin (reduce #'min (flatten data))) (if maxin maxin (reduce #'max (flatten data))))) (mapcar #'(lambda (x) (scaling x :minin (if minin minin (reduce #'min (flatten data))) :maxin (if maxin maxin (reduce #'max (flatten data))) :minout (if minout minout 0) :maxout (if maxout maxout 1))) data)))
+	(otherwise
+	 (cond ((and (integerp (data-scale (id mlt))) (zerop (data-scale (id mlt))))
+		(scaling data :mlt mlt :data-type :bin))
+	       ((and (integerp (data-scale (id mlt))) (= 1 (data-scale (id mlt))))
+		(scaling data :mlt mlt :data-type :std))
+	       ((and (listp (data-scale (id mlt))) (= 2 (length (data-scale (id mlt)))) (loop for i in (data-scale (id mlt)) always (numberp i))) 
+		(scaling data :minin (car (data-scale (id mlt))) :maxin (cadr (data-scale (id mlt))) :minout minout :maxout maxout))
+	       ((and (listp (data-scale (id mlt))) (loop for i in (data-scale (id mlt)) always (listp i)) (loop for x in (data-scale (id mlt)) always (and (= 2 (length x)) (loop for y in x always (numberp y)))))
+	       (mat-trans (loop for d in (mat-trans data) for range in (data-scale (id mlt)) collect (scaling d :minin (car range) :maxin (cadr range) :minout minout :maxout maxout))))
+	       (t (scaling data :mlt mlt :data-type :flat)))))  
+      (mapcar #'(lambda (x) (scaling x :minin (if minin minin (reduce #'min (flatten data))) :maxin (if maxin maxin (reduce #'max (flatten data))) :minout (if minout minout 0) :maxout (if maxout maxout 1))) data)))
 
-(defgeneric normalize-data (data &key minval maxval lowerlimit upperlimit))
-(defmethod normalize-data ((data list) &key (minval (reduce #'min (flatten data))) (maxval (reduce #'max (flatten data))) (lowerlimit 0) (upperlimit 1))
-  (values
-   (mapcar #'(lambda (x) (normalize-data x :minval minval :maxval maxval :lowerlimit lowerlimit :upperlimit upperlimit)) data)
-   lowerlimit
-   upperlimit))
-
-(defmethod normalize-data ((data number) &key minval maxval lowerlimit upperlimit)
-  (+ lowerlimit (/ (* (- data minval) (- upperlimit lowerlimit)) (- maxval minval))))
+(defmethod scaling ((data number) &key minin maxin minout maxout mlt data-type)
+  (declare (ignore mlt data-type))
+  (+ minout (/ (* (- data minin) (- maxout minout)) (- maxin minin))))
 
 ;;;  ;  ;;  ; ; ;; ; ; ; ;   ;
+
+(defgeneric mapping (self iteration dataset &key init-lr init-rad end-lr end-rad init-ep dfun dtype))
+(defmethod mapping ((self som) (iteration integer) (dataset list) &key (init-lr 0.1) (init-rad (/ (funcall #'mean (list! (field self))) 2)) (end-lr 0.01) (end-rad 0.1) (init-ep (epoch self)) (dfun #'exp-decay) dtype)
+  (let ((data (scaling dataset :mlt self :data-type dtype)))
+    (dotimes (k iteration)
+      (setf (input self)
+	    (nth (random (length data)) data)
+	    (radius self)
+	    (funcall dfun (1+ (- (epoch self) init-ep)) init-rad iteration end-rad)
+	    (learning-rate self)
+	    (funcall dfun (+ 1 (- (epoch self) init-ep)) init-lr iteration end-lr))
+      (learn self))))
+
+;;; ;;    ;  ; ;  ;;; ;  ;;  ;;; ;;    ;
 
 (defvar *days* '("Monday" "Tuesday" "Wednesday" "Thursday" "Friday" "Saturday" "Sunday"))
 
 (defgeneric history (self &optional opt))
 (defmethod history ((self t) &optional opt)
-  (declare (ignore opt))
+  (declare (ignore opt)) ;; use opt for history recursivity in SL
   (when (or (som-p (id self)) (area-p (id self)))
     (labels ((tps (gdt)
 	       (multiple-value-bind
@@ -236,9 +267,9 @@ Also, 'all-combinations' is a misnomer to refers in fact to an 'all-permutations
 (defgeneric locate-cycle (nodes-lst &optional order res))
 (defmethod locate-cycle ((nodes-lst list) &optional order res)
   (if (< (length nodes-lst) 3)
-      res
+      (ordinate res #'> :key #'length)
       (if (equalp (caar nodes-lst) (cadar nodes-lst))
-	  (locate-cycle (cdr nodes-lst) res)
+	  (locate-cycle (cdr nodes-lst) order res)
 	  (let ((tmp (list (car nodes-lst))))
 	    (loop for i in (cdr nodes-lst)
 	       do
