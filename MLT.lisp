@@ -261,7 +261,7 @@ nil = check if e1 and e2 are in common one node;
 (defmethod test-trn ((self mlt) (trn list))
   (and (loop for i in trn always (or (eq '? i) (and (integerp i) (>= i 0) (< i (length (fanaux-list self)))))) (not (loop for i in trn always (eq '? i)))))
 
-(defun ht (ht &optional (key :k) &aux (*print-pretty* t))
+(defun ht (ht &optional (key :k))
   (case key
     (:k (let (r) (maphash (lambda (k v) (declare (ignore v)) (push k r)) ht) r))
     (:al (let (r) (maphash (lambda (k v) (push (cons k v) r)) ht) r))

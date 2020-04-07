@@ -4,14 +4,17 @@ dir=$(dirname $1)
 opt=${2:-0}
 
 # reduce-saved-file
+# remove undesired tab, space and newline
 cat $1 | sed 's/  */\ /g' > $dir/.tmp.lisp
 cat $dir/.tmp.lisp | tr "\\n" " " | sed 's/  /\ /g' > $1
 rm $dir/.tmp.lisp
 
 # add-icon
 dirscript="$( cd -P "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-
 $dirscript/add-icns/SetCustomIcon $1 $dirscript/add-icns/N3.icns
+
+# TODO
+# add-icon on LINUX
 
 # ---
 filename=$(basename $1)
@@ -24,6 +27,3 @@ if [[ "tree" = "$ext" ]] && [ 0 == $opt ]; then
     nn=`basename $dir`
     mv $1 $dir/$name/$nn.tree
 fi
-
-# TODO
-# add-icon on LINUX

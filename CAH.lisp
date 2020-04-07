@@ -61,8 +61,6 @@
 ;; dist[node] is used only to built newick tree, the real distance is defined by (abs (read-value-in (node-label <node>))) [node] or 0.0 [leaf] (neuron)
 ;; inertia[node] = intra-class inertia from leaves of the node
 
-(defgeneric root-p (self))
-(defgeneric leaf-p (self))
 (defgeneric get-root (self))
 (defgeneric get-leaves (self &key trim loop))
 (defgeneric tree>nw (self &key with-label as-root))
@@ -70,11 +68,13 @@
 (defgeneric cah-fanaux (self tree n-class &key trim))
 (defgeneric dendrogram (self aggregation &key diss-fun newick with-label and-data) (:documentation "The node-data root records as a list: self aggregation diss-fun string-info"))
 
-(defmethod root-p ((self node)) (when (null (node-parent self)) t))
-(defmethod root-p ((self t)) nil)
+(defgeneric root-p (self)
+  (:method ((self node)) (when (null (node-parent self)) t))
+  (:method ((self t)) nil))
 
-(defmethod leaf-p ((self node)) (when (null (node-child self)) t))
-(defmethod leaf-p ((self t)) nil)
+(defgeneric leaf-p (self)
+  (:method ((self node)) (when (null (node-child self)) t))
+  (:method ((self t)) nil))
 
 (defmethod id ((self node)) self)
 
@@ -177,14 +177,15 @@
 			res)))))
       (history (get-root self) (cons (list (get-leaves (get-root self)) 0.0 0.0) nil))))
 
-(defgeneric neuron>ind (self))
-(defmethod neuron>ind ((self node)) (if (neuron-p (id (read-value-in self))) (read-from-string (format nil "~S+" (neuron>ind (id (read-value-in self))))) self))
-(defmethod neuron>ind ((self neuron)) (+ 10 (ind self)))
-(defmethod neuron>ind ((self t)) self)
-(defgeneric neuron<ind (self n))
-(defmethod neuron<ind ((self rna) (n node)) (if (integerp (read-value-in n)) (read-from-string (format nil "~S+" (neuron<ind self (read-value-in n)))) n))
-(defmethod neuron<ind ((self rna) (n integer)) (id (nth (- n 10) (neurons-list self))))
-(defmethod neuron<ind ((self rna) (n t)) n)
+(defgeneric neuron>ind (self)
+  (:method ((self node)) (if (neuron-p (id (read-value-in self))) (read-from-string (format nil "~S+" (neuron>ind (id (read-value-in self))))) self))
+  (:method ((self neuron)) (+ 10 (ind self)))
+  (:method ((self t)) self))
+
+(defgeneric neuron<ind (self n)
+  (:method ((self rna) (n node)) (if (integerp (read-value-in n)) (read-from-string (format nil "~S+" (neuron<ind self (read-value-in n)))) n))
+  (:method ((self rna) (n integer)) (id (nth (- n 10) (neurons-list self))))
+  (:method ((self rna) (n t)) n))
 
 (defmethod save ((self node))
   (let ((path

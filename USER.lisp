@@ -6,12 +6,11 @@
 ;------------------------------------------------------------------
 ;                                          global path needed in N3
 
-(defgeneric expand-path (in))
-(defmethod expand-path ((in string))
-  (if (string= "~" (subseq in 0 1)) (concatenate 'string (directory-namestring (user-homedir-pathname)) (subseq in 2)) in))
-
-(defmethod expand-path ((in pathname))
-  (pathname (expand-path (namestring in))))
+(defgeneric expand-path (in)
+  (:method ((in string))
+    (if (string= "~" (subseq in 0 1)) (concatenate 'string (directory-namestring (user-homedir-pathname)) (subseq in 2)) in))
+  (:method  ((in pathname))
+    (pathname (expand-path (namestring in)))))
 
 ; Add here the full pathname of the directory of the package N3.
 (defvar *NEUROMUSE3-DIRECTORY* (expand-path "~/lisp/packages/N3/"))

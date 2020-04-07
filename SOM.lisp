@@ -42,7 +42,6 @@
     :initform '() :initarg :output :accessor output :type list)
    )) 
    
-
 ;; associate symbol at the neuron name
 (defmethod initialize-instance :after ((self neuron) &key name)
   (let ((n (if name 

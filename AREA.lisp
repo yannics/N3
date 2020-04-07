@@ -105,15 +105,15 @@
   (loop for i in (soms-list self) do (set-all-zeros (id i) :mode mode)))
 
 ;;------------------------------
-(defgeneric read-data (self data &key scale))
-(defmethod read-data ((self mlt) (data list) &key scale) (when (loop for i in data always (= (nbre-input self) (length i))) (if scale (scaling data :mlt self) data)))
-(defmethod read-data ((self mlt) (file string) &key scale) (read-data self (read-file file) :scale scale))
-(defmethod read-data ((self mlt) (file pathname) &key scale) (read-data self (read-file (namestring file)) :scale scale))
-(defmethod read-data ((self mlt) (data null) &key scale) (declare (ignore self data scale)) nil)
-(defmethod read-data ((self mlt) (data t) &key scale) (declare (ignore self data scale)) nil)
-(defmethod read-data ((self area) (data list) &key scale)
-  (let ((seq (remove nil (loop for s in (soms-list self) for f in data collect (read-data (id s) f :scale scale)))))
-    (when (and (= (length (soms-list self)) (length seq)) (loop for i in (cdr seq) always (= (length (car seq)) (length i)))) seq)))
+(defgeneric read-data (self data &key scale)
+  (:method ((self mlt) (data list) &key scale) (when (loop for i in data always (= (nbre-input self) (length i))) (if scale (scaling data :mlt self) data)))
+  (:method ((self mlt) (file string) &key scale) (read-data self (read-file file) :scale scale))
+  (:method ((self mlt) (file pathname) &key scale) (read-data self (read-file (namestring file)) :scale scale))
+  (:method ((self mlt) (data null) &key scale) (declare (ignore self data scale)) nil)
+  (:method ((self mlt) (data t) &key scale) (declare (ignore self data scale)) nil)
+  (:method ((self area) (data list) &key scale)
+    (let ((seq (remove nil (loop for s in (soms-list self) for f in data collect (read-data (id s) f :scale scale)))))
+      (when (and (= (length (soms-list self)) (length seq)) (loop for i in (cdr seq) always (= (length (car seq)) (length i)))) seq))))
 ;;------------------------------
 
 (defmethod add-edge ((self area) (clique list) (pos integer))
