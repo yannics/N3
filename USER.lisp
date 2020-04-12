@@ -171,3 +171,22 @@ When the final value is superior to initial value, the function becomes increasi
   (* initial-value (exp (/ epoch (/ learning-time (log (/ final-value initial-value)))))))
 
 ;------------------------------------------------------------------
+;                                                  compute function        
+
+;; one argument (probability-list) ...
+;; probability-list is formated as follow: ((prob1 item1) (prob2 item2) ...)
+
+(defun rnd-weighted (alist &optional (r '(0)))
+  "The alist has to be well-formed:
+(
+ (item1 weight1)
+ (item2 weight2)
+ ...
+ )
+with sum of weight(i) = 1.0"
+  ;(assert (= 1 (loop for i in (mapcar #'cadr alist) sum i)))
+  (loop for i in (mapcar #'cadr alist) do (push (+ (car r) i) r))
+  (let ((res (nth (1- (length (loop for i in (reverse r) while (> (- 1 (random 1.0)) i) collect i))) alist)))
+    (values (car res) (cadr res))))
+
+;------------------------------------------------------------------

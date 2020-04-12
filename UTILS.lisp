@@ -226,8 +226,8 @@ Also, 'all-combinations' is a misnomer to refers in fact to an 'all-permutations
 
 (defgeneric all-tournoi (self &key order remanence))
 (defgeneric all-clique (self))
-(defgeneric rnd-tournoi (self &key order remanence))
-(defgeneric rnd-clique (self))
+(defgeneric rnd-tournoi (self &key order remanence compute))
+(defgeneric rnd-clique (self &key compute))
 
 (defmethod all-tournoi ((self mlt) &key (order (cover-value self)) (remanence t))
   (when (and (integerp order) (> order 1))
@@ -250,15 +250,15 @@ Also, 'all-combinations' is a misnomer to refers in fact to an 'all-permutations
 	(let ((res (loop for i in (all-combinations (ar-ser (length (fanaux-list self))) order) when (tournoi-p i self :arcs) collect i)))
 	  (ordinate (mapcar #'list (mapcar #'float (normalize-sum (get-weight self res :remanence nil))) res) #'> :key #'car)))))
 
-(defmethod rnd-tournoi ((self mlt) &key (order (cover-value self)) (remanence t))
-  (rnd-weighted (mapcar #'reverse (all-tournoi self :remanence remanence :order order))))
+(defmethod rnd-tournoi ((self mlt) &key (order (cover-value self)) (remanence t) (compute #'rnd-weighted))
+  (funcall compute (mapcar #'reverse (all-tournoi self :remanence remanence :order order))))
 
 (defmethod all-clique ((self area))
   (let ((tmp (loop for i in (reccomb (ar-ser (car (fanaux-length self))) (mapcar #'ar-ser (cdr (fanaux-length self)))) when (clique-p i self) collect i)))
     (ordinate (mapcar #'list (mapcar #'float (normalize-sum (get-weight self tmp))) tmp) #'> :key #'car)))
 
-(defmethod rnd-clique ((self area))
-  (rnd-weighted (mapcar #'reverse (all-clique self))))
+(defmethod rnd-clique ((self area) &key (compute #'rnd-weighted))
+  (funcall compute (mapcar #'reverse (all-clique self))))
 
 (defun rem-sublst (sub lst)
   (let ((nl lst))

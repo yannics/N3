@@ -64,8 +64,7 @@
   #+sbcl
   (sb-mop:set-funcallable-instance-function f (function-of f))
   #+openmcl
-  (ccl:set-funcallable-instance-function f (function-of f))
-  )       
+  (ccl:set-funcallable-instance-function f (function-of f)))       
 
 (defun make-fn-with-code (function source ml)
   (make-instance 'fn-with-code :source source :function function :ml ml))

@@ -418,45 +418,35 @@ as arcs forming the tournoi when self is MLT, then a = tournoi = T (as integer) 
 	 (ult (loop for i in res collect (list (caar i) (mean (mapcar #'cadr i))))))
     (ordinate (mapcar #'list (mapcar #'car ult) (normalize-sum (mapcar #'cadr ult))) #'> :key #'cadr)))
 
-(defun rnd-weighted (alist &optional (r '(0)))
-  "The alist has to be well-formed:
-(
- (item1 weight1)
- (item2 weight2)
- ...
- )
-with sum of weight(i) = 1.0"
-  ;(assert (= 1 (loop for i in (mapcar #'cadr alist) sum i)))
-  (loop for i in (mapcar #'cadr alist) do (push (+ (car r) i) r))
-  (let ((res (nth (1- (length (loop for i in (reverse r) while (> (- 1 (random 1.0)) i) collect i))) alist)))
-    (values (car res) (cadr res))))
+(defun singleton (lst)
+  (when (and (listp lst) (= 1 (length lst))) t))
 
-(defgeneric next-event-probability (head self &key result remanence))
-(defmethod next-event-probability ((head list) (self mlt) &key (result :compute) (remanence t))
+(defgeneric next-event-probability (head self &key result remanence compute))
+(defmethod next-event-probability ((head list) (self mlt) &key (result :compute) (remanence t) (compute #'rnd-weighted))
   (let ((hist
 	 (if remanence
 	     (locate-tournoi self (reverse (complist (cons '? (reverse head)) (cover-value self) '?)) :remanence t)
-	     (locate-tournoi self (reverse (cons '? (reverse head))) :remanence nil))))
+	     (locate-tournoi self (if (singleton head) (complist (cons '? head) 3 '?) (reverse (cons '? (reverse head)))) :remanence nil))))
     (when hist
       (case result
 	(:list (loop for i in (group-list hist self) collect (list (* 1.0 (cadr i)) (car i))))
 	(:verbose (loop for i in (group-list hist self) do
 		       (format t "~@<~S => ~3I~_~,6f %~:>~%" (car i) (* 100.0 (cadr i)))))
-	(:compute (rnd-weighted (group-list hist self)))))))
-  
-(defmethod next-event-probability ((head integer) (self mlt) &key (result :compute) remanence)
-  (next-event-probability (list '? head) self :remanence remanence :result result))
+	(:compute (funcall compute (group-list hist self)))))))
+
+(defmethod next-event-probability ((head integer) (self mlt) &key (result :compute) (remanence t) (compute #'rnd-weighted))
+  (next-event-probability (list '? head) self :remanence remanence :result result :compute compute))
 
 ;------------------------------------------------------------------
 ;                                                UPDATE-COVER-VALUE    
         
-(defgeneric add-prev-prob (self trn val))
-(defmethod add-prev-prob ((self mlt) (trn list) (val integer))
+(defgeneric add-prev-prob (self trn val compute))
+(defmethod add-prev-prob ((self mlt) (trn list) (val integer) (compute function))
   (let ((res trn) (n (- val (cover-value self))))
-    (dotimes (i n) (setf res (cons (rnd-weighted (group-list (mapcar #'(lambda (x) (list (car x) (reverse (cadr x)))) (locate-tournoi self (cons '? res))) self)) res))) res))
+    (dotimes (i n) (setf res (cons (funcall compute (group-list (mapcar #'(lambda (x) (list (car x) (reverse (cadr x)))) (locate-tournoi self (cons '? res))) self)) res))) res))
 
-(defgeneric update-cover-value (self val &optional ht))
-(defmethod update-cover-value ((self mlt) (val integer) &optional (ht (make-hash-table :test #'equalp)))
+(defgeneric update-cover-value (self val &key ht compute))
+(defmethod update-cover-value ((self mlt) (val integer) &key (ht (make-hash-table :test #'equalp)) (compute #'rnd-weighted))
   (cond ((or (null (cover-value self)) (= (cover-value self) val))
 	 (setf (cover-value self) val))
 	((> (cover-value self) val)
@@ -472,9 +462,9 @@ with sum of weight(i) = 1.0"
 	 (loop for key being the hash-keys of (trns self)
 	    using (hash-value value)
 	    do
-	      (setf (gethash (add-prev-prob self key val) ht) value))
+	      (setf (gethash (add-prev-prob self key val compute) ht) value))
 	 (setf
-	  (mct self) (add-prev-prob self (mct self) val)
+	  (mct self) (add-prev-prob self (mct self) val compute)
 	  (cover-value self) val
 	  (trns self) ht)))
   (values))

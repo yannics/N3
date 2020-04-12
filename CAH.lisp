@@ -17,11 +17,11 @@
 (defparameter +GA+ (make-instance 'neuron) "Ghost neuron for the center of gravity of a class A, in order to evaluate a distance with +GB+.")
 (defparameter +GB+ (make-instance 'neuron) "Ghost neuron for the center of gravity of a class B, in order to evaluate a distance with +GA+.")
 
-(defgeneric roundd (in n))
-(defmethod roundd ((in number) (n integer))
-  (float (/ (round (* in (expt 10 n))) (expt 10 n))))
-(defmethod roundd ((in list) (n integer))
-  (loop for i in in collect (roundd i n)))
+(defgeneric roundd (in &optional n)
+  (:method ((in number) &optional (n 0))
+    (float (/ (round (* in (expt 10 n))) (expt 10 n))))
+  (:method ((in list) &optional (n 0))
+    (loop for i in in collect (roundd i n))))
 
 (defun read-value-in (value)
   (read-from-string (remove-if #'(lambda (x) (equalp x #\+)) (prin1-to-string value))))
@@ -82,7 +82,6 @@
   (if (null (node-parent self)) self (get-root (id (node-parent self)))))
 
 (defmethod get-leaves ((self node) &key trim loop)
-  (print self)
   "Get the list of leaves of a given node.
 - trim = nil: collect all leaves of the tree or the subtree (equivalent to prune) of a given node.
 - trim = <distance/node>: remove nodes beyond a given distance or a given node and collect all leaves from the root."

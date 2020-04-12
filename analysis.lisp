@@ -548,15 +548,16 @@ which lengths are successive values of the list <segmentation>.
       (loop for i in lw when (equalp (butlast i) head) collect i)
       lw))
 
-(defmethod next-event-probability ((head list) (seq list) &key (result :verbose) remanence)
+(defmethod next-event-probability ((head list) (seq list) &key (result :verbose) remanence (compute #'rnd-weighted))
   (declare (ignore remanence))
   (let* ((lw (get-match head (loop-wind seq (1+ (length head)))))
-	 (hist (count-item-in-list lw)))
+	 (rh (count-item-in-list (mapcar #'car (mapcar #'last (remove-duplicates lw :test #'equalp)))))
+	 (ord (ordinate (mapcar #'list (mapcar #'car rh) (normalize-sum (mapcar #'cadr rh))) #'> :key #'cadr)))
     (case result
-      (:list (ordinate (loop for i in hist collect (list (float (/ (car i) (length lw))) (car (last (cadr i))))) #'> :key #'car))
-      (:verbose (loop for i in hist do
-		     (format t "~@<~S => ~3I~_~,6f %~:>~%" (car (last (cadr i))) (* 100 (float (/ (car i) (length lw)))))))
+      (:list (mapcar #'reverse ord))
+      (:verbose (loop for i in ord do
+		     (format t "~@<~S => ~3I~_~,6f %~:>~%" (car i) (* 100 (float (cadr i))))))
       (:compute (if lw
-		    (values (car (last (nth (random (length lw)) lw))) (length hist))
+		    (values (funcall compute ord) (length hist))
 		    (values nil 0))))))
 ;;------------------------------------------------------------------

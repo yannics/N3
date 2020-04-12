@@ -204,7 +204,7 @@ In others word, clique = (index_fanal_SOM1 index_fanal_SOM2 ...)."
       (and (= (length (soms-list self)) (length clique)) (loop for c in clique for i from 0 always (or (eq '? c) (and (integerp c) (>= c 0) (< c (nth i (fanaux-length self)))))) (not (loop for i in clique always (eq '? i))))))
 
 (defmethod locate-clique ((self area) (nodes list) &key (test #'mean))
-  ;; any malformed nodes list will be interpreted as NIL.
+  ;; any malformed nodes list will be interpreted as NIL and will return all possible cliques of self.
   (let* ((el (if (listp (car nodes)) (when (test-clique self nodes :as-nodes t) nodes) (when (test-clique self nodes) (loop for i in nodes for s from 0 when (integerp i) collect (list i s)))))
 	 (nht (arcs self))
 	 (ed (if (null el)
@@ -231,15 +231,15 @@ In others word, clique = (index_fanal_SOM1 index_fanal_SOM2 ...)."
 	  (dispatch-combination seqs (nth 0 seqs) 1 (reccomb (car seqs) (list (nth 1 seqs)))))))
 
 (defun trns-prob (clique al)
-  (reduce #'* (mapcar #'cadr (loop for i in clique for j in al collect (assoc i (mapcar #'reverse j))))))
+  (reduce #'* (mapcar #'cadr (loop for i in clique for j in al when j collect (assoc i (mapcar #'reverse j))))))
 
 (defun mat-trans (lst)
   (apply #'mapcar #'list lst))
 
-(defmethod next-event-probability ((head list) (self area) &key (result :compute) remanence)
+(defmethod next-event-probability ((head list) (self area) &key (result :compute) remanence (compute #'rnd-weighted))
   (let ((al (loop for i in (mat-trans head) for net in (soms-list self) collect (next-event-probability i (id net) :remanence remanence :result :list))) 
 	r) 
-    (loop for c in (dispatch-combination (mapcar #'list! (loop for l in al collect (if (null l) '? (mapcar #'cadr l))))) when (clique-p c self) do (setf r (append (mapcar #'cadr (locate-clique self c)) r)))
+    (loop for c in (dispatch-combination (mapcar #'list! (loop for l in al collect (if (null l) '? (mapcar #'cadr l))))) when (test-clique self c) do (setf r (append (mapcar #'cadr (locate-clique self c)) r)))
     (let* ((tmp (group-list (mat-trans (list (get-weight self r) r)) self))
 	   (rwi (mapcar #'cons (loop for i in tmp collect (trns-prob (car i) al)) (mapcar #'reverse tmp)))
 	   (orwi (ordinate rwi #'> :key #'car))) 
@@ -247,11 +247,14 @@ In others word, clique = (index_fanal_SOM1 index_fanal_SOM2 ...)."
 	(:list (if remanence orwi rwi))
 	(:verbose (loop for i in (if remanence orwi rwi) do
 		       (format t "~@<~S => ~3I~_R:~,6f % - ~,6f %~:>~%" (caddr i) (* 1.0 (car i)) (* 1.0 (cadr i)))))
-	(:compute (let* ((res (rnd-weighted (if remanence (mapcar #'reverse (mapcar #'list (mapcar #'car orwi) (mapcar #'caddr orwi))) tmp)))
+	(:compute (let* ((res (funcall compute (if remanence (mapcar #'reverse (mapcar #'list (mapcar #'car orwi) (mapcar #'caddr orwi))) tmp)))
 			 (vals (assoc res (mapcar #'reverse rwi) :test #'equalp)))
 		    (when res (values
 			       res
 			       (caddr vals)
 			       (cadr vals)))))))))
+
+(defmethod next-event-probability ((head null) (self area) &key result remanence compute)
+  (declare (ignore head self result remanence compute)))
 
 ;------------------------------------------------------------------
