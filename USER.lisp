@@ -174,7 +174,7 @@ When the final value is superior to initial value, the function becomes increasi
 ;                                                  compute function        
 
 ;; one argument (probability-list) ...
-;; probability-list is formated as follow: ((prob1 item1) (prob2 item2) ...)
+;; probability-list is formated as follow: ((item1 prob1) (item2 prob2) ...)
 
 (defun rnd-weighted (alist &optional (r '(0)))
   "The alist has to be well-formed:

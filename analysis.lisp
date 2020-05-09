@@ -558,6 +558,6 @@ which lengths are successive values of the list <segmentation>.
       (:verbose (loop for i in ord do
 		     (format t "~@<~S => ~3I~_~,6f %~:>~%" (car i) (* 100 (float (cadr i))))))
       (:compute (if lw
-		    (values (funcall compute ord) (length hist))
+		    (values (funcall compute ord) (length rh))
 		    (values nil 0))))))
 ;;------------------------------------------------------------------

@@ -24,8 +24,6 @@
     :initform (make-hash-table :test #'equalp) :initarg :trns :accessor trns)
    (arcs
     :initform (make-hash-table :test #'equalp) :initarg :arcs :accessor arcs)
-   (data-scale
-    :initform nil :initarg :data-scale :accessor data-scale) ; to retrieve initial data values
    (mem-cache
     :initform nil :initarg :mem-cache :accessor mem-cache)))
 
@@ -176,6 +174,22 @@ nil = check if e1 and e2 are in common one node;
 ;------------------------------------------------------------------
 ;                                                    INITIALISATION              
 
+(defun list! (x) (if (listp x) x (list x)))
+(defclass ds () ; to manage and retrieve initial data values
+  ((dt :initform nil :initarg :dt :accessor dt)))
+
+(defmethod print-object ((self ds) stream)
+  (format stream "#<DS~{ ~S~}>" (list! (dt self))))
+
+(defgeneric ds-p (self)
+  (:method ((self ds)) t)
+  (:method ((self t)) nil))
+
+(defmethod init-som :after ((self mlt) (nbre-input integer) (nbre-neurons integer) &key carte topology field)
+  (declare (ignore nbre-input nbre-neurons carte topology field))
+  (setf (gethash (1+ (get-universal-time)) (date-report self)) (make-instance 'ds :dt :bypass))
+  (values self))
+
 (defvar *available-som* '())
  
 (defun create-mlt (name n-input n-neurons &key carte topology field n-fanaux)
@@ -202,8 +216,6 @@ nil = check if e1 and e2 are in common one node;
 
 (defun ar-ser (n &optional r)
   (dotimes (i n (reverse r)) (push i r)))
-
-(defun list! (x) (if (listp x) x (list x)))
 
 (defun cart (l1 l2)
   (mapcar #'(lambda (x) (mapcar #'(lambda (y) (append (list! x) (list y))) l2)) l1))
@@ -309,9 +321,11 @@ The key :test manages the weights as a mean value by default."))
   (loop for i in (ht (trns self) :k) when (search chain i :test #'(lambda (a b) (or (eq a '?) (= a b)))) collect i))
 
 (defun mean (xlst &optional wlst)
-  (if wlst
-      (float (/ (apply #'+ (mapcar #'* xlst wlst)) (apply #'+ wlst)))
-      (float (/ (apply #'+ xlst) (length xlst)))))
+  (if xlst 
+      (if wlst
+	  (float (/ (apply #'+ (mapcar #'* xlst wlst)) (apply #'+ wlst)))
+	  (float (/ (apply #'+ xlst) (length xlst))))
+      0.0))
 
 (defmethod get-weight ((self mlt) (chain-list list) &key (remanence t) (test #'mean)) ;; chain-list = result of locate-tournoi
   (if remanence

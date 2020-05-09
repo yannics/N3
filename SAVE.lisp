@@ -16,63 +16,66 @@
 
 (defmethod save ((self som))
   (let ((path (format nil "~A~A.som" *N3-BACKUP-DIRECTORY* (name self))))
-    (progn
-      (let ((slots-som (get-slots self))
-	    (slots-neuron (get-slots (id (car (neurons-list self))))))
-	(with-open-file (stream path
-				:direction :output
-				:if-exists :supersede
-				:if-does-not-exist :create)
-	  (if (mlt-p self)
-	      (format stream "(PUSH (MAKE-INSTANCE (QUOTE N3::MLT)")
-	      (format stream "(PUSH (MAKE-INSTANCE (QUOTE N3::SOM)"))
-	  (loop for s in slots-som do
-	       (let ((val (funcall s self)))
-		 (if (eq s (read-from-string "NEURONS-LIST")) 
-		     (progn (format stream " :NEURONS-LIST (LIST")
-			    (loop for nl in (neurons-list self) do
-				 (format stream " (MAKE-INSTANCE (QUOTE N3::NEURON)")
-				 (loop for n in slots-neuron do
-				      (let ((val-n (funcall n nl)))
-					(format stream " :~S (QUOTE ~S)" n val-n)))
-				 (format stream ")"))
-			    (format stream ")"))
-		     (cond ((hash-table-p val) (format stream " :~S (MAKE-HASH-TABLE :TEST #'EQUALP)" s))
-			   ((functionp val) 
-			    (let ((mvl (multiple-value-list (function-lambda-expression val))))
-			      (cond
-				((listp (car (last mvl))) (format stream " :~S ~S" s (if (ml? val) (ml! val) val)))				
-				(t (format stream " :~S #'~S" s (car (last mvl)))))))
-			   (t (format stream " :~S (QUOTE ~S)" s val))))))
-	  (format stream ") N3::*AVAILABLE-SOM*)")
-	  (format stream "(DEFVAR ~S (SYMBOL-VALUE ~S))" (name self) self)
+    (let ((slots-som (get-slots self))
+	  (slots-neuron (get-slots (id (car (neurons-list self))))))
+      (with-open-file (stream path
+			      :direction :output
+			      :if-exists :supersede
+			      :if-does-not-exist :create)
+	(if (mlt-p self)
+	    (format stream "(PUSH (MAKE-INSTANCE (QUOTE N3::MLT)")
+	    (format stream "(PUSH (MAKE-INSTANCE (QUOTE N3::SOM)"))
+	(loop for s in slots-som do
+	     (let ((val (funcall s self)))
+	       (if (eq s (read-from-string "NEURONS-LIST")) 
+		   (progn (format stream " :NEURONS-LIST (LIST")
+			  (loop for nl in (neurons-list self) do
+			       (format stream " (MAKE-INSTANCE (QUOTE N3::NEURON)")
+			       (loop for n in slots-neuron do
+				    (let ((val-n (funcall n nl)))
+				      (format stream " :~S (QUOTE ~S)" n val-n)))
+			       (format stream ")"))
+			  (format stream ")"))
+		   (cond ((hash-table-p val) (format stream " :~S (MAKE-HASH-TABLE :TEST #'EQUALP)" s))
+			 ((functionp val) 
+			  (let ((mvl (multiple-value-list (function-lambda-expression val))))
+			    (cond
+			      ((listp (car (last mvl))) (format stream " :~S ~S" s (if (ml? val) (ml! val) val)))				
+			      (t (format stream " :~S #'~S" s (car (last mvl)))))))
+			 (t (format stream " :~S (QUOTE ~S)" s val))))))
+	(format stream ") N3::*AVAILABLE-SOM*)")
+	(format stream "(DEFVAR ~S (SYMBOL-VALUE ~S))" (name self) self)
+	(when (mlt-p self)
 	  (maphash (lambda (k v) (format stream "(SETF (GETHASH (QUOTE ~S) (ONSET ~S)) ~S) " k (name self) v)) (onset self))
 	  (maphash (lambda (k v) (format stream "(SETF (GETHASH (QUOTE ~S) (FINE ~S)) ~S) " k (name self) v)) (fine self))
 	  (maphash (lambda (k v) (format stream "(SETF (GETHASH (QUOTE ~S) (TRNS ~S)) ~S) " k (name self) v)) (trns self))
-	  (maphash (lambda (k v) (format stream "(SETF (GETHASH (QUOTE ~S) (ARCS ~S)) ~S) " k (name self) v)) (arcs self))
-	  (maphash (lambda (k v) (format stream "(SETF (GETHASH (QUOTE ~S) (DATE-REPORT ~S)) ~S) " k (name self) v)) (date-report self))))
-      (UIOP:run-program (format nil "sh -c '~S ~S'" *UPDATE-SAVED-NET* path)))))
+	  (maphash (lambda (k v) (format stream "(SETF (GETHASH (QUOTE ~S) (ARCS ~S)) ~S) " k (name self) v)) (arcs self)))
+	(maphash (lambda (k v)
+		   (if (ds-p v)
+		       (format stream "(SETF (GETHASH (QUOTE ~S) (DATE-REPORT ~S)) (MAKE-INSTANCE 'DS :dt ~S) " k (name self) (dt v))
+		       (format stream "(SETF (GETHASH (QUOTE ~S) (DATE-REPORT ~S)) ~S) " k (name self) v)))
+		   (date-report self))))
+    (UIOP:run-program (format nil "sh -c '~S ~S'" *UPDATE-SAVED-NET* path))))
 
 (defmethod save ((self area))
   (let ((path (format nil "~A~A.area" *N3-BACKUP-DIRECTORY* (name self))))
-    (progn
-      (loop for i in (soms-list self) do (save (id i)))
-      (let ((slots-som (get-slots self)))
-	(with-open-file (stream path
-				:direction :output
-				:if-exists :supersede
-				:if-does-not-exist :create)
-	  (format stream "(PUSH (MAKE-INSTANCE (QUOTE N3::AREA)")
-	  (loop for s in slots-som do
-	       (let ((val (funcall s self)))
-		 (if (hash-table-p val)
-			 (format stream " :~S (MAKE-HASH-TABLE :TEST #'EQUALP)" s)	   
-			 (format stream " :~S (QUOTE ~S)" s val))))
-	  (format stream ") N3::*AVAILABLE-AREA*)")
-	  (format stream "(DEFVAR ~S (SYMBOL-VALUE ~S))" (name self) self)
-	  (maphash (lambda (k v) (format stream "(SETF (GETHASH (QUOTE ~S) (ARCS ~S)) ~S) " k self v)) (arcs self))
-	  (maphash (lambda (k v) (format stream "(SETF (GETHASH (QUOTE ~S) (DATE-REPORT ~S)) ~S) " k (name self) v)) (date-report self))))
-      (UIOP:run-program (format nil "sh -c '~S ~S'" *UPDATE-SAVED-NET* path)))))
+    (loop for i in (soms-list self) do (save (id i)))
+    (let ((slots-som (get-slots self)))
+      (with-open-file (stream path
+			      :direction :output
+			      :if-exists :supersede
+			      :if-does-not-exist :create)
+	(format stream "(PUSH (MAKE-INSTANCE (QUOTE N3::AREA)")
+	(loop for s in slots-som do
+	     (let ((val (funcall s self)))
+	       (if (hash-table-p val)
+		   (format stream " :~S (MAKE-HASH-TABLE :TEST #'EQUALP)" s)	   
+		   (format stream " :~S (QUOTE ~S)" s val))))
+	(format stream ") N3::*AVAILABLE-AREA*)")
+	(format stream "(DEFVAR ~S (SYMBOL-VALUE ~S))" (name self) self)
+	(maphash (lambda (k v) (format stream "(SETF (GETHASH (QUOTE ~S) (ARCS ~S)) ~S) " k self v)) (arcs self))
+	(maphash (lambda (k v) (format stream "(SETF (GETHASH (QUOTE ~S) (DATE-REPORT ~S)) ~S) " k (name self) v)) (date-report self))))
+    (UIOP:run-program (format nil "sh -c '~S ~S'" *UPDATE-SAVED-NET* path))))
 
 ;------------------------------------------------------------------
 ;                                               LOAD-NEURAL-NETWORK

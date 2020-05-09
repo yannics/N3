@@ -31,46 +31,125 @@
 ;------------------------------------------------------------------
 ;                                                             UTILS
 
-(defgeneric scaling (data &key minin maxin minout maxout mlt data-type))
-(defmethod scaling ((data list) &key minin maxin minout maxout mlt data-type)
-  (if (mlt-p (id mlt))
-      (case data-type
-	;; normalize data by dimension
-	(:dim (progn (setf (data-scale (id mlt)) (loop for d in (mat-trans data) collect (list (reduce #'min (flatten d)) (reduce #'max (flatten d))))) (mat-trans (loop for d in (mat-trans data) collect (scaling d)))))
-	;; 0/1
-	(:bin (progn (setf (data-scale (id mlt)) 0) (loop for d in data collect (mapcar #'(lambda (x) (if (> x 0.5) 1 0)) d))))
-	;; normalize data by event
-	(:std (progn (setf (data-scale (id mlt)) 1) (loop for d in data collect (scaling d))))
-	;; normalize flatten data 
-	(:flat (progn (setf (data-scale (id mlt)) (list (if minin minin (reduce #'min (flatten data))) (if maxin maxin (reduce #'max (flatten data))))) (mapcar #'(lambda (x) (scaling x :minin (if minin minin (reduce #'min (flatten data))) :maxin (if maxin maxin (reduce #'max (flatten data))) :minout (if minout minout 0) :maxout (if maxout maxout 1))) data)))
-	(otherwise
-	 (cond ((and (integerp (data-scale (id mlt))) (zerop (data-scale (id mlt))))
-		(scaling data :mlt mlt :data-type :bin))
-	       ((and (integerp (data-scale (id mlt))) (= 1 (data-scale (id mlt))))
-		(scaling data :mlt mlt :data-type :std))
-	       ((and (listp (data-scale (id mlt))) (= 2 (length (data-scale (id mlt)))) (loop for i in (data-scale (id mlt)) always (numberp i))) 
-		(scaling data :minin (car (data-scale (id mlt))) :maxin (cadr (data-scale (id mlt))) :minout minout :maxout maxout))
-	       ((and (listp (data-scale (id mlt))) (loop for i in (data-scale (id mlt)) always (listp i)) (loop for x in (data-scale (id mlt)) always (and (= 2 (length x)) (loop for y in x always (numberp y)))))
-	       (mat-trans (loop for d in (mat-trans data) for range in (data-scale (id mlt)) collect (scaling d :minin (car range) :maxin (cadr range) :minout minout :maxout maxout))))
-	       (t (scaling data :mlt mlt :data-type :flat)))))  
-      (mapcar #'(lambda (x) (scaling x :minin (if minin minin (reduce #'min (flatten data))) :maxin (if maxin maxin (reduce #'max (flatten data))) :minout (if minout minout 0) :maxout (if maxout maxout 1))) data)))
-
-(defmethod scaling ((data number) &key minin maxin minout maxout mlt data-type)
-  (declare (ignore mlt data-type))
-  (+ minout (/ (* (- data minin) (- maxout minout)) (- maxin minin))))
+(defun version () (format t "~a" (asdf:component-version (asdf:find-system "n3"))))
 
 ;;;  ;  ;;  ; ; ;; ; ; ; ;   ;
 
-(defgeneric mapping (self iteration dataset &key init-lr init-rad end-lr end-rad init-ep dfun dtype))
-(defmethod mapping ((self som) (iteration integer) (dataset list) &key (init-lr 0.1) (init-rad (/ (funcall #'mean (list! (field self))) 2)) (end-lr 0.01) (end-rad 0.1) (init-ep (epoch self)) (dfun #'exp-decay) dtype)
-  (let ((data (scaling dataset :mlt self :data-type dtype)))
+(defgeneric the-ds (self) (:method ((self mlt)) (cdar (ordinate (loop for i in (ht (date-report self) :al) when (ds-p (cdr i)) collect i) '> :key #'car))))
+(defun addtothird (n lst) (cond ((= 2 (length lst)) (reverse (cons (if n n 0) (reverse lst)))) ((= 3 (length lst)) (reverse (cons (if n n 0) (reverse (butlast lst))))) (t nil)))
+
+(defgeneric update-data-scale (self &rest ds)
+  (:documentation "DS [as key + data-scale value] {default-value}
++-----------------------------------------------------------------------+
+|    :norm (min max curve{0}) or curve                                  |
+| OR :dim ((min[1] max[1] curve[1]{0}) ... (min[n] max[n] curve[n]{0})) |               
++-----------------------------------------------------------------------+
+| OR :bypass [as identity set by default]                               |
++-----------------------------------------------------------------------+
+Note that the output is clipped if the range of input is largest than values of :norm or :dim")
+  (:method ((self mlt) &rest ds)
+    ;; test ds
+    (if (or (and (eq :bypass (car ds)) (or (eq (cadr ds) 't) (null (cadr ds))))
+	    (and (eq :norm (car ds)) (listp (cadr ds)) (or (= 2 (length (cadr ds))) (= 3 (length (cadr ds)))) (loop for n in (cadr ds) always (numberp n)) (null (caddr ds)))
+	    (and (eq :dim (car ds)) (listp (cadr ds)) (loop for x in (cadr ds) always (and (listp x) (or (= 2 (length x)) (= 3 (length x))) (loop for y in x always (numberp y)))) (null (caddr ds))))
+	;; add DS to history of self
+	(if (equalp (dt (the-ds self)) ds)
+	    (warn "Nothing to update! ...")
+	    (let ((ct (get-universal-time)))
+	      (setf (gethash ct (date-report self)) (make-instance 'ds :dt ds))
+	      (the-ds self)))
+    (warn "Nothing to update! Check your DS entry..."))))
+
+(defgeneric zero-a (x &optional quasi-zero)
+ (:documentation "Replace all quasi-zero by zero.")
+;; zero-a is [...] a kind of deleuzian un-differentiation...
+ (:method ((x number) &optional (quasi-zero .00001)) (if (< (abs x) quasi-zero) 0.0 x))
+ (:method ((x list) &optional (quasi-zero .00001)) (mapcar #'(lambda (a) (zero-a a quasi-zero)) x)))
+
+(defgeneric scaling (data &key minin maxin minout maxout curve mlt norm dim bypass update))
+(defmethod scaling ((data number) &key minin maxin minout maxout curve mlt norm dim bypass update)
+  (declare (ignore mlt norm dim bypass update))
+  (if (and minin maxin minout maxout curve)
+      (if (> (abs curve) 0.001)
+	  (let* ((grow (exp curve))
+		 (a (/ (- maxin minin) (- 1 grow)))
+		 (b (+ minin a)))
+	    (zero-a (+ minout (/ (* (log (/ (- b (cond ((> data maxin) maxin) ((< data minin) minin) (t data))) a)) (- maxout minout)) curve))))
+	  (zero-a (+ minout (/ (* (- (cond ((> data maxin) maxin) ((< data minin) minin) (t data)) minin) (- maxout minout)) (- maxin minin)))))
+      data))
+
+(defmethod scaling ((data list) &key minin maxin minout maxout curve mlt norm dim bypass update)
+  (if (mlt-p (id mlt))
+      ;;-------------------------------
+      (let (ddts)
+	(cond (bypass
+	       (when *verbose* (format t ":bypass"))
+	       (setf ddts (list :bypass)))
+	      ;;-------------------------------
+	      ;; list (minval maximal {curve}) —> if curve unset then 0 
+	      ((and (listp norm) (not (null norm)) (or (= 2 (length norm)) (= 3 (length norm))) (loop for n in norm always (numberp n)))
+	       (when *verbose* (format t ":norm <list & t & [ len=2 | len=3 ] & alwaysNum>"))
+	       (setf ddts (list :norm (if (= 2 (length norm)) (addtothird 0 norm) norm))))
+	      ;;-------------------------------
+	      ;; num —> if ds{norm} then update curve else default vals
+	      ((numberp norm)
+	       (when *verbose* (format t ":norm <num>"))
+	       (setf ddts (list :norm (addtothird norm (if (and (eq :norm (car (dt (the-ds (id mlt))))) (cadr (dt (the-ds (id mlt))))) (cadr (dt (the-ds (id mlt)))) (list (reduce #'min (flatten data)) (reduce #'max (flatten data))))))))
+	      ;;-------------------------------
+	      ;; t —> default vals
+	      ((eq norm 't)
+	       (when *verbose* (format t ":norm <t>"))
+	       (setf ddts (list :norm (list (reduce #'min (flatten data)) (reduce #'max (flatten data)) 0))))
+	      ;;-------------------------------
+	      ;; list ((minval maximal {curve}) and/or curve ...) + ds{dim} —> if list & curve unset then 0; if only curve then update curve with vals of ds
+	      ((and (listp dim) (not (null dim)) (= (length (mat-trans data)) (length dim)) (loop for x in dim always (or (and (listp x) (or (= 2 (length x)) (= 3 (length x))) (loop for y in x always (numberp y))) (numberp x))) (eq :dim (car (dt (the-ds (id mlt))))) (cadr (dt (the-ds (id mlt)))))
+	       (when *verbose* (format t ":dim <list & t & len(mt{data})=len(dim) & always{num | (list & [ len=2 | len=3 ] & alwaysNum)} & ds{dim} & dt{list}>"))
+	       (setf ddts (list :dim (loop for i in dim for j in (cadr (dt (the-ds (id mlt)))) collect (if (numberp i) (addtothird i j) (if (= 3 (length i)) i (addtothird 0 i)))))))
+	      ;;-------------------------------
+	      ;; list ((minval maximal {curve}) and/or curve ...) - ds{dim} —> if list & curve unset then 0; if only curve then update curve with default vals 
+	      ((and (listp dim) (not (null dim)) (eq :dim (car (dt (the-ds (id mlt))))) (loop for x in dim always (or (and (listp x) (or (= 2 (length x)) (= 3 (length x))) (loop for y in x always (numberp y))) (numberp x))))
+	       (when *verbose* (format t ":dim <list & t  & len(mt{data})=len(dim) & always{num | (list & [ len=2 | len=3 ] & alwaysNum)}>"))
+	       (setf ddts (list :dim (loop for i in dim for j in (loop for d in (mat-trans data) collect (list (reduce #'min (flatten d)) (reduce #'max (flatten d)) 0)) collect (if (numberp i) (addtothird i j) (if (= 3 (length i)) i (addtothird 0 i)))))))
+	      ;;-------------------------------
+	      ;; num + ds{dim} —> update all curves with vals of ds
+	      ((and (numberp dim) (eq :dim (car (dt (the-ds (id mlt))))) (listp (cadr (dt (the-ds (id mlt))))))
+	       (when *verbose* (format t ":dim <num & ds{dim} & dt{list}>"))
+	       (setf ddts (list :dim (loop for i in (cadr (dt (the-ds (id mlt)))) collect (addtothird dim i)))))
+	      ;;-------------------------------
+	      ;; num - ds{dim} —> update all curves with default vals 
+	      ((numberp dim)
+	       (when *verbose* (format t ":dim <num>"))
+	       (setf ddts (list :dim (loop for i in (loop for d in (mat-trans data) collect (list (reduce #'min (flatten d)) (reduce #'max (flatten d)) 0)) collect (addtothird dim i)))))
+	      ;;-------------------------------
+	      ;; t —> default vals
+	      ((eq dim 't)
+	       (when *verbose* (format t ":dim <t>"))
+	       (setf ddts (list :dim (loop for d in (mat-trans data) collect (list (reduce #'min (flatten d)) (reduce #'max (flatten d)) 0)))))
+	      ;;-------------------------------
+	      (t
+	       (when *verbose* (format t ":DS"))
+	       (setf ddts (list! (dt (the-ds (id mlt)))))))
+	;;-------------------------------
+	(when update (apply #'update-data-scale (cons (id mlt) ddts)))
+	(case (car ddts)
+	  (:bypass data)
+	  (:norm (mapcar #'(lambda (x) (scaling x :minin (car (cadr ddts)) :maxin (cadr (cadr ddts)) :minout 0 :maxout 1 :curve (caddr (cadr ddts)))) data))
+	  (:dim (mat-trans (loop for d in (mat-trans data) for s in (cadr ddts) collect (scaling d :minin (car s) :maxin (cadr s) :minout 0 :maxout 1 :curve (caddr s)))))))
+      ;;-------------------------------
+      (mapcar #'(lambda (x) (scaling x :minin (if minin minin (reduce #'min (flatten data))) :maxin (if maxin maxin (reduce #'max (flatten data))) :minout (if minout minout 0) :maxout (if maxout maxout 1) :curve (if curve curve 0))) data)))
+
+;;;  ;  ;;  ; ; ;; ; ; ; ;   ;
+
+(defgeneric mapping (self iteration dataset &key init-lr init-rad end-lr end-rad init-ep df ds))
+(defmethod mapping ((self som) (iteration integer) (dataset list) &key (init-lr 0.1) (init-rad (/ (funcall #'mean (list! (field self))) 2)) (end-lr 0.01) (end-rad 0.1) (init-ep (epoch self)) (df #'exp-decay) (ds (dt (the-ds self))))
+  (let ((data (apply #'scaling (cons dataset (append '(:mlt self) (list! ds)))))) 
     (dotimes (k iteration)
       (setf (input self)
 	    (nth (random (length data)) data)
 	    (radius self)
-	    (funcall dfun (1+ (- (epoch self) init-ep)) init-rad iteration end-rad)
+	    (funcall df (1+ (- (epoch self) init-ep)) init-rad iteration end-rad)
 	    (learning-rate self)
-	    (funcall dfun (+ 1 (- (epoch self) init-ep)) init-lr iteration end-lr))
+	    (funcall df (+ 1 (- (epoch self) init-ep)) init-lr iteration end-lr))
       (learn self))))
 
 ;;; ;;    ;  ; ;  ;;; ;  ;;  ;;; ;;    ;
@@ -88,7 +167,10 @@
 		 (declare (ignore dst-p))
 		 (format nil "#<~a ~2,'0d:~2,'0d:~2,'0d ~2,'0d/~2,'0d/~d (GMT~@d)>" (nth day-of-week *days*) hour minute second date month year (- tz)))))
       (let ((mht (ordinate (ht (date-report self) :al) #'> :key #'car)))
-	(loop for i in (butlast mht) do (format t "Modified: ~a~&" (tps (car i))) (format t (cdr i)) (format t "~&"))
+	(loop for i in (butlast mht) do
+	     (if (ds-p (cdr i))
+		 (format t "Updated: ~a~&---> ~a~&" (tps (car i)) (cdr i))
+		 (progn (format t "Modified: ~a~&" (tps (car i))) (format t (cdr i)) (format t "~&"))))
 	(format t "Created: ~a~&---> ~a~&" (tps (caar (last mht))) (cdar (last mht)))))))
 
 ;;; ;;  ;;;;   ;; ;; ;  ;   ;   ; 
@@ -113,7 +195,7 @@
 
 ;;;; ;; ;;  ; ;;;  ;; ;  ; ; ; ;   ;
 
-(defun >data-file (path lst &optional comment)
+(defun >data-file (path lst &key comment csv)
   "Allows to write data file. 
 If needed it can be added a comment in first line started with:
 ';' = LISP
@@ -128,7 +210,9 @@ If needed it can be added a comment in first line started with:
     (when comment (format stream "~A~&" comment))
     (loop for i in lst
        do
-	 (format stream "~{~S ~}~%" (if (listp i) i (list i))))))
+	 (if csv
+	     (format stream "~{~S~^, ~}~%" (list! i))
+	     (format stream "~{~S ~}~%" (list! i))))))
 
 ;;; ;;    ;  ; ;  ;;; ;  ;;  ;;; ;;    ;
 
@@ -290,5 +374,139 @@ Also, 'all-combinations' is a misnomer to refers in fact to an 'all-permutations
 
 (defmethod locate-cycle ((nodes-lst hash-table) &optional order res)
   (locate-cycle (ht nodes-lst :k) order res))
+
+;;; ;;    ;  ; ;  ;;; ;  ;;  ;;; ;;    ;
+
+(defun x->dx (lst)
+  (loop for x in lst
+     for y in (rest lst)
+     collect (- y x)) )
+
+(defun subseq-thres (seq1 seq2 thres)
+  "seq = (dx->x 0 (normalize-sum duration-list))"
+  (remove nil (loop for i in seq1
+		 collect (loop for j in seq2
+			    when (<= (abs (- j i)) (* thres (min (caddr seq1) (caddr seq2))))
+			    collect j))))
+
+(defun filternoway (lst)
+  (let ((r (list (car lst))))
+    (loop for i in (cdr lst)
+       do
+	 (let ((tmp (member (caar r) i)))
+	   (if tmp
+	       (unless (null (cdr tmp)) 
+                 (if (= (car (last tmp)) (car (last (car r))))
+                     (let ((ir (butlast (car r))))
+                       (setf r (cdr r)) 
+                       (push ir r)
+                       (push (cdr tmp) r))
+                   (push (cdr tmp) r)))
+             (push i r))))
+    (reverse r)))
+
+(defun prim (a)
+  (if (zerop a) a (/ a (abs a))))
+
+(defun mk-y (x lst) ; lst --> ((x1 y1) (x2 y2))
+  (let ((x1 (caar lst)) 
+	(y1 (cadar lst))
+	(x2 (caadr lst))
+	(y2 (cadadr lst)))
+    (cond ((and (= x1 x2) (= y1 y2)) y1)
+	  ((= x1 x2) (abs (- y1 y2))) ;; euclidean distance between y1 and y2
+	  (t ;; linear inrerpolation
+	   (let* ((b (/ (- (* x1 y2) (* x2 y1)) (- x1 x2)))
+		  (a (/ (- y1 y2) (- x1 x2))))
+	     (+ b (* x a)))))))
+
+(defun dur>onset (xs/l ended)
+  (let ((x (dx->x 0 (normalize-sum (car xs/l))))
+	(y (cadr xs/l))
+	(mv (apply #'min (normalize-sum (car xs/l)))))
+    (case ended
+      (:ignore (list (butlast x) y mv))
+      (:first (list x (append y (list (car y))) mv))
+      (:last (list x (append y (last y)) mv)))))
+
+(defun median-group (clx cres)
+  (if (null cres)
+      (mean clx)
+      (let (plus same minus)
+	(loop for i in clx do (cond ((= 0 (prim (- i cres))) (push i same))
+				    ((= 1 (prim (- i cres))) (push i plus))
+				    ((= -1 (prim (- i cres))) (push i minus))))
+	(let ((sl (sort (list plus same minus) #'> :key #'length)))
+	  (cond ((apply #'= (mapcar #'length sl)) (mean (flatten sl)))
+		((= (length (car sl)) (length (cadr sl))) (mean (flatten (butlast sl))))
+		(t (mean (car sl))))))))
+
+(defun lx->dx (lx cluster &optional res)
+  (if lx
+      (let ((x (if (singleton (car lx))
+		   (caar lx)
+		   (case cluster
+		     (:mean (mean (car lx)))
+		     (:maxima (apply #'max (car lx)))
+		     (:minima (apply #'min (car lx)))
+		     (:median (median-group (car lx) (car res)))))))
+	(when res (setf res (cons (- x (car res)) (cdr res))))
+	(lx->dx (cdr lx) cluster (push x res))) 
+      (reverse (cdr res))))
+    
+(defun differential-vector (xs/l1 xs/l2 &key (result :diff-norm) (opt :mean) (thres 0.2) (ended :ignore) (tolerance :no) (cluster :median))
+  "Returns in term of distance the normalized norm of the vector or its coordinates:
+ - <result :diff-coord> (1-x 1-y),
+ - <result :diff-norm> [default] ||(1-x 1-y)||,
+ - <result :sim-coord> (x y),
+ - <result :sim-norm> ||(x y)||;
+defined by:
+x as the percentage of the timing concordances according to the three following options:
+ - <opt :max> number of concordances divided by the maximal cardinal between the two sequences;
+ - <opt :min> number of concordances divided by the minimal cardinal between the two sequences; 
+ - <opt :mean> [default] number of concordances divided by the average of cardinals of the two sequences,
+with a threshold as a percentage -- i.e. 1 = 100% -- of the minimal duration value of the sequences involved [0.2 by default];
+the clustering discrimination is done according to the following keyword:
+ - <cluster :maxima> retains the maximal value of the cluster,
+ - <cluster :minima> retains the minimal value of the cluster,
+ - <cluster :mean> compute the mean value of the cluster,
+ - <cluster :median> [default] compute the mean value of the bigger group in terms of first derivative signs (in case of equality this is the mean value of the union of these groups);
+y as percentage of the profile resemblance relative to the events concordances defined in x. This is computed from the sign of the first derivative of durations. The last duration can be involved as the repetition of the last level set with <ended :last> -- that means the derivative equal to zero --, according to a cyclicity by the repetition of the first level set with <ended :first>, or simply ignored set with <ended :ignore> [default].
+The key tolerance concerns the primitive concordance as 1 = 0 and -1 = 0:
+  - <tolerance :no> [default].
+  - <tolerance :yes>.
+The input xs/l has to be a list of durations and its respective profile level as follow: 
+((dur-1 dur-2 ... dur-n) (val-1 val-2 ...val-n))
+Note that each list of durations is scaled such as sum of durations is equal to 1 and val-i is a positive number or a list of positive numbers."
+(if (null xs/l2)
+    (let ((r (list)))
+      (dotimes (i (length xs/l1) (nreverse r))
+	(loop for j from (1+ i) to (1- (length xs/l1)) do
+	     (push (list i j (differential-vector (nth i xs/l1) (nth j xs/l1) :result result :opt opt :thres thres :ended ended :tolerance tolerance :cluster cluster)) r))))
+    (let* ((l1 (dur>onset xs/l1 ended))
+	   (l2 (dur>onset xs/l2 ended))
+	   (lx1 (filternoway (subseq-thres (car l1) (car l2) thres)))
+	   (lx2 (filternoway (subseq-thres (car l2) (car l1) thres)))
+	   (p1 (mapcar #'(lambda (x) (flatten (loop for i in x collect (cadr (assoc i (mat-trans (butlast l2))))))) lx1))
+	   (p2 (mapcar #'(lambda (x) (flatten (loop for i in x collect (cadr (assoc i (mat-trans (butlast l1))))))) lx2))
+	   (seqsort (sort (list (length (car xs/l1)) (length (car xs/l2))) #'<))
+	   (x (case opt
+		(:min (/ (if (eq ended :ignore) (length lx1) (1- (length lx1))) (car seqsort) 1.0))
+		(:max (/ (if (eq ended :ignore) (length lx1) (1- (length lx1))) (cadr seqsort) 1.0))
+		(:mean (/ (if (eq ended :ignore) (length lx1) (1- (length lx1))) (mean seqsort)))))
+	   (y (mapcar #'(lambda (a b)
+			  (case tolerance
+			    (:no (if (= (prim a) (prim b)) 1 0))
+			    (:yes (if (or (= 1 (abs (+ (prim a) (prim b)))) (= (prim a) (prim b))) 1 0))
+			    (otherwise (error "The key :tolerance requires as arguments either the keyword :yes or :no."))))
+		      (lx->dx p1 cluster) (lx->dx p2 cluster))))
+      (when *verbose* (format t "l1: ~S~&l2: ~S~&lx1: ~S~&lx2: ~S~&p1: ~S~&p2: ~S~&seqsort: ~S~&x: ~S~&y: ~S~&lxp1: ~S~&lxp2: ~S~&lx1nof: ~S~&lx2nof: ~S~&" l1 l2 lx1 lx2 p1 p2 seqsort x y (lx->dx p1 cluster) (lx->dx p2 cluster) (subseq-thres (car l1) (car l2) thres) (subseq-thres (car l2) (car l1) thres)))
+      (case result
+	(:diff-norm (values (/ (sqrt (+ (expt (- 1 x) 2) (expt (- 1 (mean y)) 2))) (sqrt 2)) (list (- 1 x) (- 1 (mean y)))))
+	(:diff-coord (values (list (- 1 x) (- 1 (mean y))) (/ (sqrt (+ (expt (- 1 x) 2) (expt (- 1 (mean y)) 2))) (sqrt 2))))
+	(:diff-list (list (/ (sqrt (+ (expt (- 1 x) 2) (expt (- 1 (mean y)) 2))) (sqrt 2)) (- 1 x) (- 1 (mean y))))
+	(:sim-norm (values (/ (sqrt (+ (expt x 2) (expt (mean y) 2))) (sqrt 2)) (list x (mean y))))
+	(:sim-coord (values (list x (mean y)) (/ (sqrt (+ (expt x 2) (expt (mean y) 2))) (sqrt 2))))
+	(:sim-list (list (/ (sqrt (+ (expt x 2) (expt (mean y) 2))) (sqrt 2)) x (mean y)))))))
 
 ;------------------------------------------------------------------
