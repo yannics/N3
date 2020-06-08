@@ -57,7 +57,7 @@
 
 (defstruct (node (:print-function (lambda (p s k) (declare (ignore k)) (format s "~A" (node-label p))))) label child parent dist (inertia 0.0) data)
 ;; label[node] = -<distance-number>+(...) or <neuron-name>+ [leaf]
-;; data[node] = <neuron-name> [leaf] or (list <som-name> <aggregation-number> (list <distance-function> &optional ...)) [root] or nil [node]
+;; data[node] = <neuron-name> [leaf] or (list "<som-name>" <aggregation-number> "<distance-function>" "<dir-name>") [root] or nil [node]
 ;; dist[node] is used only to built newick tree, the real distance is defined by (abs (read-value-in (node-label <node>))) [node] or 0.0 [leaf] (neuron)
 ;; inertia[node] = intra-class inertia from leaves of the node
 
@@ -100,18 +100,6 @@
 	(get-leaves self :trim 1)))
   ;; output leaves list
   *memcache1*)
-#|
-#+sbcl
-; in: DEFMETHOD GET-LEAVES (NODE)
-;     (N3::REC N3::SELF N3::TRIM)
-; ==>
-;   N3::SELF
-; 
-; note: deleting unreachable code
-; 
-; note: deleting unreachable code
-#+openmcl
-|#
 
 (defmethod tree>nw ((self node) &key with-label (as-root t))
   "Display as a newick structure the <self> node."
@@ -309,17 +297,7 @@ if a = 1 --> single linkage
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
 
-(defmethod cah-fanaux ((self som) (tree node) (n-class integer) &key trim)
-  "Built a fanaux list from a given number of classes according the CAH. 
-For now tree has to be the node root."
-  (let ((nodes (car (assoc n-class (history tree) :key #'length))))
-    (if trim nodes
-	(loop for i in nodes collect
-	     (let ((gl (mapcar #'node-data (get-leaves i))))
-	       (gravity-center gl +GA+)
-	       (car (last (car (nearest self +GA+ :n-list gl :diss-fun (caddr (node-data tree)))))))))))
-
-(defmethod dendrogram ((self som) (aggregation integer) &key (diss-fun #'euclidean) (newick t) with-label and-data)
+(defmethod dendrogram ((self som) (aggregation integer) &key (diss-fun (distance-in self)) (newick t) with-label and-data)
   (setf
    *event* nil
    *tree* '())
@@ -328,8 +306,8 @@ For now tree has to be the node root."
   (setf (node-data (car *tree*)) (list (format nil "~S" self) aggregation
 				       (let ((mvl (multiple-value-list (function-lambda-expression diss-fun))))
 					 (cond
-					   ((listp (car (last mvl))) diss-fun)				
-					   (t (read-from-string (format nil "#'~S" (car (last mvl)))))))
+					   ((listp (car (last mvl))) (format nil "~S" (if (ml? diss-fun) (source-of diss-fun) diss-fun)))				
+					   (t (format nil "~S" (car (last mvl))))))
 				       (format nil "~S~S~S" aggregation (car *tree*) (epoch self))))
   (when newick
     (save (car *tree*))
@@ -346,8 +324,23 @@ For now tree has to be the node root."
   
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
 
-; ... update MLT with CAH ...
-; (update-fanaux <mlt> (cah-fanaux <mlt> (dendrogram <mlt> 3 :newick nil) <n-class/(length_(fanaux-list_<mlt>))>))
+(defmethod cah-fanaux ((self som) (tree node) (n-class integer) &key trim)
+  "Built a fanaux list from a given number of classes according the CAH. 
+For now tree has to be the node root."
+  (let ((nodes (car (assoc n-class (history tree) :key #'length))))
+    (if trim nodes
+	(loop for i in nodes collect
+	     (let ((gl (mapcar #'node-data (get-leaves i))))
+	       (gravity-center gl +GA+)
+	       (car (last (car (nearest self +GA+ :n-list gl :diss-fun (caddr (node-data tree)))))))))))
+
+(defmethod update-fanaux ((self mlt) (n-fanaux integer))
+  (let* ((tree
+	  (if (and *tree* (eq self (id (read-from-string (car (node-data *tree*))))))
+	      *tree*
+	      (dendrogram self 3 :diss-fun (distance-in self) :newick nil)))
+	 (cahf (cah-fanaux self tree n-fanaux)))
+    (if cahf (update-fanaux self cahf) (warn "This tree cannot be trimmed in ~S fanaux. Type (open-graph ~S) to check where it can be trimmed.~&TODO: nearest trim..." n-fanaux tree))))
 
 ;------------------------------------------------------------------
 

@@ -475,11 +475,6 @@ For now tree has to be the node root."
 (defmethod serial-pair ((lst list))
   (loop for i from 1 to (1- (length lst)) collect (list (nth (1- i) lst) (nth i lst))))
 ;;------------------------------------------------------------------
-(defun dx->x (start dx)
-  (let ((r (list start)))
-    (loop for i in dx do (push (+ i (car r)) r))
-    (reverse r)))
-
 (defun seq->dx (seq &optional (diss-fun '(structure-distance)))
   (loop for i in (serial-pair seq) collect (funcall diss-fun i)))
 
@@ -554,10 +549,10 @@ which lengths are successive values of the list <segmentation>.
 	 (rh (count-item-in-list (mapcar #'car (mapcar #'last (remove-duplicates lw :test #'equalp)))))
 	 (ord (ordinate (mapcar #'list (mapcar #'car rh) (normalize-sum (mapcar #'cadr rh))) #'> :key #'cadr)))
     (case result
-      (:list (mapcar #'reverse ord))
+      (:prob (mapcar #'reverse ord))
       (:verbose (loop for i in ord do
 		     (format t "~@<~S => ~3I~_~,6f %~:>~%" (car i) (* 100 (float (cadr i))))))
-      (:compute (if lw
+      (:eval (if lw
 		    (values (funcall compute ord) (length rh))
 		    (values nil 0))))))
 ;;------------------------------------------------------------------

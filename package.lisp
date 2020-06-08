@@ -1,7 +1,3 @@
-(progn
-  (ignore-errors (require 'fosc))
-  (unless (find-package 'fosc) (ignore-errors (require 'osc))))
-
 (defpackage :N3
   (:use :cl)
   (:export :*N3-BACKUP-DIRECTORY* 
@@ -39,7 +35,13 @@
 
 	   :LAMBDA*
 	   :SCALING
-	   :MAPPING))
+	   :MAPPING
+
+	   :DIFFERENTIAL-VECTOR))
+
+(progn
+  (ignore-errors (require 'fosc))
+  (unless (find-package 'fosc) (ignore-errors (require 'osc))))
 
 (in-package :N3)
 (setf *random-state* (make-random-state t)

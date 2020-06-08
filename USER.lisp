@@ -4,7 +4,7 @@
 (in-package :N3)
 
 ;------------------------------------------------------------------
-;                                          global path needed in N3
+;                                                 global path in N3
 
 (defgeneric expand-path (in)
   (:method ((in string))
@@ -12,10 +12,8 @@
   (:method  ((in pathname))
     (pathname (expand-path (namestring in)))))
 
-; Add here the full pathname of the directory of the package N3.
-(defvar *NEUROMUSE3-DIRECTORY* (expand-path "~/lisp/packages/N3/"))
+(defvar *NEUROMUSE3-DIRECTORY* (namestring (asdf:component-pathname (asdf:find-system "n3"))))
 
-; and your own backup directory to save all networks created.
 (defvar *N3-BACKUP-DIRECTORY* (concatenate 'string (expand-path "~/Documents/") "neuromuse3-backup-networks/"))
 (ensure-directories-exist *N3-BACKUP-DIRECTORY*)
 
@@ -23,7 +21,7 @@
 (defvar *gnuplot* nil)
 (cond ((probe-file (pathname "/usr/bin/gnuplot")) (setf *gnuplot* "/usr/bin/gnuplot"))
       ((probe-file (pathname "/opt/local/bin/gnuplot")) (setf *gnuplot* "/opt/local/bin/gnuplot"))
-      (t (warn "GNUPLOT is required to display graph.")))
+      (t (warn "GNUPLOT is required to display graph. Il")))
 (defvar *display* nil)
 (cond ((probe-file (pathname "/usr/bin/display")) (setf *display* "/usr/bin/display"))
       ((probe-file (pathname "/usr/bin/open")) (setf *display* "/usr/bin/open"))
@@ -88,7 +86,6 @@
 ;------------------------------------------------------------------
 ;                                                proximity function
 
-
 (defgeneric euclidean (arg1 arg2 &key modulo position weight)
   (:documentation "two arguments (arg_1, arg_2) &key (modulo[t/nil] position[t/nil] weight[number/list])"))
 
@@ -144,6 +141,15 @@
   (declare (ignore modulo position weight))
   (abs (- arg1 arg2)))
 
+(defun hamming (n1 n2)
+  (count t
+	 (append
+	  (map
+	   'list
+	   (lambda (x y) (if (eq x y) nil t)) n1 n2)				       
+	  (nthcdr (length n1) n2)
+	  (nthcdr (length n2) n1))))
+
 ;------------------------------------------------------------------
 ;                                             neighborhood function   
 
@@ -171,22 +177,30 @@ When the final value is superior to initial value, the function becomes increasi
   (* initial-value (exp (/ epoch (/ learning-time (log (/ final-value initial-value)))))))
 
 ;------------------------------------------------------------------
-;                                                  compute function        
+;                      compute function (-> next-event-probability)        
 
 ;; one argument (probability-list) ...
-;; probability-list is formated as follow: ((item1 prob1) (item2 prob2) ...)
-
-(defun rnd-weighted (alist &optional (r '(0)))
-  "The alist has to be well-formed:
+#|
+The problist has to be well-formed:
 (
- (item1 weight1)
- (item2 weight2)
+ (item1 prob1)
+ (item2 prob2)
  ...
  )
-with sum of weight(i) = 1.0"
-  ;(assert (= 1 (loop for i in (mapcar #'cadr alist) sum i)))
-  (loop for i in (mapcar #'cadr alist) do (push (+ (car r) i) r))
-  (let ((res (nth (1- (length (loop for i in (reverse r) while (> (- 1 (random 1.0)) i) collect i))) alist)))
+with sum of weight(i) = 1.0
+|#
+;(assert (= 1 (loop for i in (mapcar #'cadr problist) sum i)))
+
+(defun rnd-weighted (problist &optional (r '(0)))
+  (loop for i in (mapcar #'cadr problist) do (push (+ (car r) i) r))
+  (let ((res (nth (1- (length (loop for i in (reverse r) while (> (- 1 (random 1.0)) i) collect i))) problist)))
+    (values (car res) (cadr res))))
+
+(defun max-weighted (problist &key head rep)
+  (let* ((lst (ordinate problist #'> :key #'cadr))
+	 (al (if (and rep head (eq (car (last head)) (cadr lst))) (cdr lst) lst))
+	 (tmp (cons (car al) (loop for i in (cdr al) until (< (cadr i) (cadr (car al))) collect i)))
+	 (res (nth (random (length tmp)) tmp)))
     (values (car res) (cadr res))))
 
 ;------------------------------------------------------------------

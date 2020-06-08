@@ -236,18 +236,18 @@ In others word, clique = (index_fanal_SOM1 index_fanal_SOM2 ...)."
 (defun mat-trans (lst)
   (apply #'mapcar #'list lst))
 
-(defmethod next-event-probability ((head list) (self area) &key (result :compute) remanence (compute #'rnd-weighted))
-  (let ((al (loop for i in (mat-trans head) for net in (soms-list self) collect (next-event-probability i (id net) :remanence remanence :result :list))) 
+(defmethod next-event-probability ((head list) (self area) &key (result :eval) remanence (compute #'rnd-weighted))
+  (let ((al (loop for i in (mat-trans head) for net in (soms-list self) collect (next-event-probability i (id net) :remanence remanence :result :prob))) 
 	r) 
     (loop for c in (dispatch-combination (mapcar #'list! (loop for l in al collect (if (null l) '? (mapcar #'cadr l))))) when (test-clique self c) do (setf r (append (mapcar #'cadr (locate-clique self c)) r)))
     (let* ((tmp (group-list (mat-trans (list (get-weight self r) r)) self))
 	   (rwi (mapcar #'cons (loop for i in tmp collect (trns-prob (car i) al)) (mapcar #'reverse tmp)))
 	   (orwi (ordinate rwi #'> :key #'car))) 
       (case result
-	(:list (if remanence orwi rwi))
+	(:prob (if remanence orwi rwi))
 	(:verbose (loop for i in (if remanence orwi rwi) do
 		       (format t "~@<~S => ~3I~_R:~,6f % - ~,6f %~:>~%" (caddr i) (* 1.0 (car i)) (* 1.0 (cadr i)))))
-	(:compute (let* ((res (funcall compute (if remanence (mapcar #'reverse (mapcar #'list (mapcar #'car orwi) (mapcar #'caddr orwi))) tmp)))
+	(:eval (let* ((res (funcall compute (if remanence (mapcar #'reverse (mapcar #'list (mapcar #'car orwi) (mapcar #'caddr orwi))) tmp)))
 			 (vals (assoc res (mapcar #'reverse rwi) :test #'equalp)))
 		    (when res (values
 			       res

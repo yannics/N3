@@ -2,6 +2,7 @@
 ;;------------------------------------------------------------------
 
 (in-package :N3)
+(defvar *debug* nil)
 
 ;------------------------------------------------------------------
 ;                                                    READ-DATA-FILE
@@ -83,51 +84,51 @@ Note that the output is clipped if the range of input is largest than values of 
       ;;-------------------------------
       (let (ddts)
 	(cond (bypass
-	       (when *verbose* (format t ":bypass"))
+	       (when *debug* (format t ":bypass"))
 	       (setf ddts (list :bypass)))
 	      ;;-------------------------------
 	      ;; list (minval maximal {curve}) —> if curve unset then 0 
 	      ((and (listp norm) (not (null norm)) (or (= 2 (length norm)) (= 3 (length norm))) (loop for n in norm always (numberp n)))
-	       (when *verbose* (format t ":norm <list & t & [ len=2 | len=3 ] & alwaysNum>"))
+	       (when *debug* (format t ":norm <list & t & [ len=2 | len=3 ] & alwaysNum>"))
 	       (setf ddts (list :norm (if (= 2 (length norm)) (addtothird 0 norm) norm))))
 	      ;;-------------------------------
 	      ;; num —> if ds{norm} then update curve else default vals
 	      ((numberp norm)
-	       (when *verbose* (format t ":norm <num>"))
+	       (when *debug* (format t ":norm <num>"))
 	       (setf ddts (list :norm (addtothird norm (if (and (eq :norm (car (dt (the-ds (id mlt))))) (cadr (dt (the-ds (id mlt))))) (cadr (dt (the-ds (id mlt)))) (list (reduce #'min (flatten data)) (reduce #'max (flatten data))))))))
 	      ;;-------------------------------
 	      ;; t —> default vals
 	      ((eq norm 't)
-	       (when *verbose* (format t ":norm <t>"))
+	       (when *debug* (format t ":norm <t>"))
 	       (setf ddts (list :norm (list (reduce #'min (flatten data)) (reduce #'max (flatten data)) 0))))
 	      ;;-------------------------------
 	      ;; list ((minval maximal {curve}) and/or curve ...) + ds{dim} —> if list & curve unset then 0; if only curve then update curve with vals of ds
 	      ((and (listp dim) (not (null dim)) (= (length (mat-trans data)) (length dim)) (loop for x in dim always (or (and (listp x) (or (= 2 (length x)) (= 3 (length x))) (loop for y in x always (numberp y))) (numberp x))) (eq :dim (car (dt (the-ds (id mlt))))) (cadr (dt (the-ds (id mlt)))))
-	       (when *verbose* (format t ":dim <list & t & len(mt{data})=len(dim) & always{num | (list & [ len=2 | len=3 ] & alwaysNum)} & ds{dim} & dt{list}>"))
+	       (when *debug* (format t ":dim <list & t & len(mt{data})=len(dim) & always{num | (list & [ len=2 | len=3 ] & alwaysNum)} & ds{dim} & dt{list}>"))
 	       (setf ddts (list :dim (loop for i in dim for j in (cadr (dt (the-ds (id mlt)))) collect (if (numberp i) (addtothird i j) (if (= 3 (length i)) i (addtothird 0 i)))))))
 	      ;;-------------------------------
 	      ;; list ((minval maximal {curve}) and/or curve ...) - ds{dim} —> if list & curve unset then 0; if only curve then update curve with default vals 
 	      ((and (listp dim) (not (null dim)) (eq :dim (car (dt (the-ds (id mlt))))) (loop for x in dim always (or (and (listp x) (or (= 2 (length x)) (= 3 (length x))) (loop for y in x always (numberp y))) (numberp x))))
-	       (when *verbose* (format t ":dim <list & t  & len(mt{data})=len(dim) & always{num | (list & [ len=2 | len=3 ] & alwaysNum)}>"))
+	       (when *debug* (format t ":dim <list & t  & len(mt{data})=len(dim) & always{num | (list & [ len=2 | len=3 ] & alwaysNum)}>"))
 	       (setf ddts (list :dim (loop for i in dim for j in (loop for d in (mat-trans data) collect (list (reduce #'min (flatten d)) (reduce #'max (flatten d)) 0)) collect (if (numberp i) (addtothird i j) (if (= 3 (length i)) i (addtothird 0 i)))))))
 	      ;;-------------------------------
 	      ;; num + ds{dim} —> update all curves with vals of ds
 	      ((and (numberp dim) (eq :dim (car (dt (the-ds (id mlt))))) (listp (cadr (dt (the-ds (id mlt))))))
-	       (when *verbose* (format t ":dim <num & ds{dim} & dt{list}>"))
+	       (when *debug* (format t ":dim <num & ds{dim} & dt{list}>"))
 	       (setf ddts (list :dim (loop for i in (cadr (dt (the-ds (id mlt)))) collect (addtothird dim i)))))
 	      ;;-------------------------------
 	      ;; num - ds{dim} —> update all curves with default vals 
 	      ((numberp dim)
-	       (when *verbose* (format t ":dim <num>"))
+	       (when *debug* (format t ":dim <num>"))
 	       (setf ddts (list :dim (loop for i in (loop for d in (mat-trans data) collect (list (reduce #'min (flatten d)) (reduce #'max (flatten d)) 0)) collect (addtothird dim i)))))
 	      ;;-------------------------------
 	      ;; t —> default vals
 	      ((eq dim 't)
-	       (when *verbose* (format t ":dim <t>"))
+	       (when *debug* (format t ":dim <t>"))
 	       (setf ddts (list :dim (loop for d in (mat-trans data) collect (list (reduce #'min (flatten d)) (reduce #'max (flatten d)) 0)))))
 	      ;;-------------------------------
 	      (t
-	       (when *verbose* (format t ":DS"))
+	       (when *debug* (format t ":DS"))
 	       (setf ddts (list! (dt (the-ds (id mlt)))))))
 	;;-------------------------------
 	(when update (apply #'update-data-scale (cons (id mlt) ddts)))
@@ -142,7 +143,7 @@ Note that the output is clipped if the range of input is largest than values of 
 
 (defgeneric mapping (self iteration dataset &key init-lr init-rad end-lr end-rad init-ep df ds))
 (defmethod mapping ((self som) (iteration integer) (dataset list) &key (init-lr 0.1) (init-rad (/ (funcall #'mean (list! (field self))) 2)) (end-lr 0.01) (end-rad 0.1) (init-ep (epoch self)) (df #'exp-decay) (ds (dt (the-ds self))))
-  (let ((data (apply #'scaling (cons dataset (append '(:mlt self) (list! ds)))))) 
+  (let ((data (apply #'scaling (cons dataset (append '(:mlt self) (list! ds) '(t)))))) 
     (dotimes (k iteration)
       (setf (input self)
 	    (nth (random (length data)) data)
@@ -380,7 +381,12 @@ Also, 'all-combinations' is a misnomer to refers in fact to an 'all-permutations
 (defun x->dx (lst)
   (loop for x in lst
      for y in (rest lst)
-     collect (- y x)) )
+     collect (- y x)))
+
+(defun dx->x (start dx)
+  (let ((r (list start)))
+    (loop for i in dx do (push (+ i (car r)) r))
+    (reverse r)))
 
 (defun subseq-thres (seq1 seq2 thres)
   "seq = (dx->x 0 (normalize-sum duration-list))"
@@ -455,7 +461,7 @@ Also, 'all-combinations' is a misnomer to refers in fact to an 'all-permutations
       (reverse (cdr res))))
     
 (defun differential-vector (xs/l1 xs/l2 &key (result :diff-norm) (opt :mean) (thres 0.2) (ended :ignore) (tolerance :no) (cluster :median))
-  "Returns in term of distance the normalized norm of the vector or its coordinates:
+  "Returns in terms of distance the normalized norm of the vector or its coordinates:
  - <result :diff-coord> (1-x 1-y),
  - <result :diff-norm> [default] ||(1-x 1-y)||,
  - <result :sim-coord> (x y),
@@ -466,7 +472,7 @@ x as the percentage of the timing concordances according to the three following 
  - <opt :min> number of concordances divided by the minimal cardinal between the two sequences; 
  - <opt :mean> [default] number of concordances divided by the average of cardinals of the two sequences,
 with a threshold as a percentage -- i.e. 1 = 100% -- of the minimal duration value of the sequences involved [0.2 by default];
-the clustering discrimination is done according to the following keyword:
+the clustering discrimination is done according to the following keywords:
  - <cluster :maxima> retains the maximal value of the cluster,
  - <cluster :minima> retains the minimal value of the cluster,
  - <cluster :mean> compute the mean value of the cluster,
@@ -500,11 +506,15 @@ Note that each list of durations is scaled such as sum of durations is equal to 
 			    (:yes (if (or (= 1 (abs (+ (prim a) (prim b)))) (= (prim a) (prim b))) 1 0))
 			    (otherwise (error "The key :tolerance requires as arguments either the keyword :yes or :no."))))
 		      (lx->dx p1 cluster) (lx->dx p2 cluster))))
-      (when *verbose* (format t "l1: ~S~&l2: ~S~&lx1: ~S~&lx2: ~S~&p1: ~S~&p2: ~S~&seqsort: ~S~&x: ~S~&y: ~S~&lxp1: ~S~&lxp2: ~S~&lx1nof: ~S~&lx2nof: ~S~&" l1 l2 lx1 lx2 p1 p2 seqsort x y (lx->dx p1 cluster) (lx->dx p2 cluster) (subseq-thres (car l1) (car l2) thres) (subseq-thres (car l2) (car l1) thres)))
+      (when *debug* (format t "l1: ~S~&l2: ~S~&lx1: ~S~&lx2: ~S~&p1: ~S~&p2: ~S~&seqsort: ~S~&x: ~S~&y: ~S~&lxp1: ~S~&lxp2: ~S~&lx1nof: ~S~&lx2nof: ~S~&" l1 l2 lx1 lx2 p1 p2 seqsort x y (lx->dx p1 cluster) (lx->dx p2 cluster) (subseq-thres (car l1) (car l2) thres) (subseq-thres (car l2) (car l1) thres)))
       (case result
+	(:diff-x (values (- 1 x) (/ (sqrt (+ (expt (- 1 x) 2) (expt (- 1 (mean y)) 2))) (sqrt 2))))
+	(:diff-y (values (- 1 (mean y)) (/ (sqrt (+ (expt (- 1 x) 2) (expt (- 1 (mean y)) 2))) (sqrt 2))))
 	(:diff-norm (values (/ (sqrt (+ (expt (- 1 x) 2) (expt (- 1 (mean y)) 2))) (sqrt 2)) (list (- 1 x) (- 1 (mean y)))))
 	(:diff-coord (values (list (- 1 x) (- 1 (mean y))) (/ (sqrt (+ (expt (- 1 x) 2) (expt (- 1 (mean y)) 2))) (sqrt 2))))
 	(:diff-list (list (/ (sqrt (+ (expt (- 1 x) 2) (expt (- 1 (mean y)) 2))) (sqrt 2)) (- 1 x) (- 1 (mean y))))
+	(:sim-x (values x (/ (sqrt (+ (expt x 2) (expt (mean y) 2))) (sqrt 2))))
+	(:sim-y (values (mean y) (/ (sqrt (+ (expt x 2) (expt (mean y) 2))) (sqrt 2))))
 	(:sim-norm (values (/ (sqrt (+ (expt x 2) (expt (mean y) 2))) (sqrt 2)) (list x (mean y))))
 	(:sim-coord (values (list x (mean y)) (/ (sqrt (+ (expt x 2) (expt (mean y) 2))) (sqrt 2))))
 	(:sim-list (list (/ (sqrt (+ (expt x 2) (expt (mean y) 2))) (sqrt 2)) x (mean y)))))))

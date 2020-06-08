@@ -52,7 +52,7 @@
 	  (maphash (lambda (k v) (format stream "(SETF (GETHASH (QUOTE ~S) (ARCS ~S)) ~S) " k (name self) v)) (arcs self)))
 	(maphash (lambda (k v)
 		   (if (ds-p v)
-		       (format stream "(SETF (GETHASH (QUOTE ~S) (DATE-REPORT ~S)) (MAKE-INSTANCE 'DS :dt ~S) " k (name self) (dt v))
+		       (format stream "(SETF (GETHASH (QUOTE ~S) (DATE-REPORT ~S)) (MAKE-INSTANCE 'DS :dt ~S)) " k (name self) (dt v))
 		       (format stream "(SETF (GETHASH (QUOTE ~S) (DATE-REPORT ~S)) ~S) " k (name self) v)))
 		   (date-report self))))
     (UIOP:run-program (format nil "sh -c '~S ~S'" *UPDATE-SAVED-NET* path))))

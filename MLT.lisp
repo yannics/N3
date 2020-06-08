@@ -91,9 +91,14 @@ nil = check if e1 and e2 are in common one node;
        (reverse r)))
 
 (defmethod nearest ((self mlt) (n neuron) &key n-list d-list diss-fun)
-  (let ((tmp (ordinate (mapcar #'(lambda (x) (list (funcall (if diss-fun diss-fun (distance-in self)) n (id x)) x)) n-list) #'< :key #'car))) 
-    (if d-list tmp
-	(loop for i in tmp until (> (car i) (caar tmp)) collect (insertnth n 1 i)))))
+    (let ((tmp (ordinate (mapcar #'(lambda (x)
+				     (list
+				      (if (stringp diss-fun)
+					  (eval (cons (read-from-string diss-fun) (list n (id x))))
+					  (funcall (if diss-fun diss-fun (distance-in self)) n (id x)))  
+				      x)) n-list) #'< :key #'car))) 
+      (if d-list tmp
+	  (loop for i in tmp until (> (car i) (caar tmp)) collect (insertnth n 1 i)))))
 
 (defmethod surjection ((self mlt) (new-fanaux-list list) &optional old-fanaux-list)
   (let* ((newl (loop for i in new-fanaux-list collect (id i)))
@@ -168,8 +173,7 @@ nil = check if e1 and e2 are in common one node;
 		  (gethash ct (date-report self)) (format nil "---> #<EPOCH ~S> ~~%---> #<NFL ~a> ~~%---> #<OFL NIL>" (epoch self) nfl))))))
   (values))
 
-(defmethod update-fanaux ((self mlt) (n-fanaux integer))
-  (update-fanaux self (cah-fanaux self (dendrogram self 3 :diss-fun (distance-in self) :newick nil) n-fanaux)))
+(defmethod update-fanaux ((self mlt) (n-fanaux null)))
 
 ;------------------------------------------------------------------
 ;                                                    INITIALISATION              
@@ -436,21 +440,31 @@ as arcs forming the tournoi when self is MLT, then a = tournoi = T (as integer) 
   (when (and (listp lst) (= 1 (length lst))) t))
 
 (defgeneric next-event-probability (head self &key result remanence compute))
-(defmethod next-event-probability ((head list) (self mlt) &key (result :compute) (remanence t) (compute #'rnd-weighted))
+(defmethod next-event-probability ((head list) (self mlt) &key (result :eval) (remanence t) (compute #'rnd-weighted))
   (let ((hist
 	 (if remanence
 	     (locate-tournoi self (reverse (complist (cons '? (reverse head)) (cover-value self) '?)) :remanence t)
 	     (locate-tournoi self (if (singleton head) (complist (cons '? head) 3 '?) (reverse (cons '? (reverse head)))) :remanence nil))))
     (when hist
       (case result
-	(:list (loop for i in (group-list hist self) collect (list (* 1.0 (cadr i)) (car i))))
+	(:prob (loop for i in (group-list hist self) collect (list (* 1.0 (cadr i)) (car i))))
 	(:verbose (loop for i in (group-list hist self) do
 		       (format t "~@<~S => ~3I~_~,6f %~:>~%" (car i) (* 100.0 (cadr i)))))
-	(:compute (funcall compute (group-list hist self)))))))
+	(:eval (funcall compute (group-list hist self)))))))
 
-(defmethod next-event-probability ((head integer) (self mlt) &key (result :compute) (remanence t) (compute #'rnd-weighted))
+(defmethod next-event-probability ((head integer) (self mlt) &key (result :eval) (remanence t) (compute #'rnd-weighted))
   (next-event-probability (list '? head) self :remanence remanence :result result :compute compute))
 
+(defmethod next-event-probability ((head null) (self mlt) &key (result :eval) (remanence t) (compute #'rnd-weighted))
+  (declare (ignore head))
+  (let ((hist (all-tournoi self :order (cover-value self) :remanence remanence)))
+    (when hist
+      (case result
+	(:prob (group-list hist self))
+	(:verbose (loop for i in (group-list hist self) do
+		       (format t "~@<~S => ~3I~_~,6f %~:>~%" (cadr i) (* 100.0 (car i)))))
+	(:eval (funcall compute (group-list hist self)))))))
+  
 ;------------------------------------------------------------------
 ;                                                UPDATE-COVER-VALUE    
         
