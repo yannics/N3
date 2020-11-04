@@ -21,7 +21,7 @@
 (defvar *gnuplot* nil)
 (cond ((probe-file (pathname "/usr/bin/gnuplot")) (setf *gnuplot* "/usr/bin/gnuplot"))
       ((probe-file (pathname "/opt/local/bin/gnuplot")) (setf *gnuplot* "/opt/local/bin/gnuplot"))
-      (t (warn "GNUPLOT is required to display graph. Il")))
+      (t (warn "GNUPLOT is required to display graph.")))
 (defvar *display* nil)
 (cond ((probe-file (pathname "/usr/bin/display")) (setf *display* "/usr/bin/display"))
       ((probe-file (pathname "/usr/bin/open")) (setf *display* "/usr/bin/open"))

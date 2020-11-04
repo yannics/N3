@@ -19,6 +19,7 @@ If needed add newline with #\Space in the data set."
     (loop for i in (butlast data) do (format stream "~{~A ~}~&" (if (listp i) i (list i))))
     (loop for i in (last data) do (format stream "~{~A ~}" (if (listp i) i (list i))))
     (when tail (format stream "~&~{~A ~}" (if (listp tail) tail (list tail))))))
+
 ;;==================================================================
 ;;                     CONTRASTIVE ANALYSIS
 ;;==================================================================
@@ -253,6 +254,7 @@ For now tree has to be the node root."
 	(structure-s (cons res as) :result result :primitive primitive))))
 
 ;; (defvar foo '(C C C A A C C D D A C B C A A E C D D A C A A B B B B B B E B B B D A C A A E B B B B B E E B B B B A C D E A A E A A C B B B B E A A A A B B A D A B C C A C E C D D A C D B A E C D A A A B B E A A E B A D A E D E A A E A D D C C B E A B B C E B D A B D A A E B A A A B B E A A B C D B B))
+
 ;;==================================================================
 ;;                    PARADIGMATIC ANALYSIS
 ;;==================================================================
@@ -433,31 +435,41 @@ For now tree has to be the node root."
 ;;------------------------------------------------------------------
 ;; CAH with sub-structure as leave called event
 
+(defvar +alist+ nil) 
+
+(defmethod gravity-center ((lst list) (ghost event)) ;; lst --> list of events
+  (setf (event-data ghost) (mapcar #'mean (mat-trans (loop for i in lst collect (event-data (id i)))))))
+
 (defmethod dendrogram ((self list) (aggregation integer) &key (diss-fun #'structure-distance) newick with-label and-data)
   ;; self is a list of objects
-  ;; aggregation method -> only 1 or 2
-  ;; key :diss-fun set a function applicable to the objects of self -- defind as a and b if lambda function (use macro lambda* -- see package.lisp)
+  ;; key :diss-fun set a function applicable to the objects of self -- defind as a and b if lambda function (use macro lambda* to keep track -- see package.lisp)
   ;; key :newick to name the output file (string or symbol)
-  ;; key :and-data to save tree (boolean)
+  ;; key :and-data to save tree (boolean) or an alist of symbol or string matching respectively the list self such as |self|=|and-data|
   (setf
+   +alist+ (and (listp and-data) (= (length and-data) (length self))) 
+   +GA+ (make-event :label '+GA+)
+   +GB+ (make-event :label '+GB+)
    *event* (format nil "~A~A-~A" *N3-BACKUP-DIRECTORY* aggregation (if newick (string newick) "structure"))
    *tree* '())
-  (dolist (e self) (push (setf (symbol-value (intern (format nil "~S+" e))) (make-node :label e :data (string e))) *tree*))
+  (loop for e in self for i from 1 do (push (setf (symbol-value (intern (format nil "~S+" (read-from-string (int2letter i))))) (make-node :label (read-from-string (int2letter i)) :data (make-event :label (read-from-string (int2letter i)) :data e :type (cond (+alist+ 'alist) ((symbolp e) 'symbol) (t 'data)) :al (when +alist+ (string (nth (1- i) and-data)))))) *tree*))
   (dendro *tree* aggregation diss-fun)
-  (setf (node-data (car *tree*)) (list (string self) aggregation
+  (setf (node-data (car *tree*)) (list (format nil "*EVENT*") aggregation
 				       (let ((mvl (multiple-value-list (function-lambda-expression diss-fun))))
 					 (cond
 					   ((listp (car (last mvl))) diss-fun)				
 					   (t (read-from-string (format nil "#'~S" (car (last mvl)))))))
-				       (format nil "*EVENT*")))
+				       (format nil "~S~S" aggregation (car *tree*))))
   (when and-data (save (car *tree*)))
+  
   (with-open-file (stream (make-pathname :directory (pathname-directory *N3-BACKUP-DIRECTORY*)
 					   :name ".tmp"
 					   :type "nw")
 			    :direction :output
 			    :if-exists :supersede
 			    :if-does-not-exist :create)
-    (format stream "~S" (list (tree>nw (car *tree*) :with-label with-label))))
+    (SETF (READTABLE-CASE *READTABLE*) :PRESERVE) ;; hack to preserve case in string alist
+    (format stream "~S" (list (tree>nw (car *tree*) :with-label with-label)))
+    (SETF (READTABLE-CASE *READTABLE*) :UPCASE)) ;; retrieve previous state
   (UIOP::run-program (format nil "sh -c '~S ~S ~S'" (format nil "~Abin/raw2nw" *NEUROMUSE3-DIRECTORY*) (format nil "~A.tmp.nw" *N3-BACKUP-DIRECTORY*) (concatenate 'string *event* ".nw")))
   (setf
    *event* nil
@@ -465,6 +477,8 @@ For now tree has to be the node root."
 ;;------------------------------------------------------------------
 ;;(dendrogram '(EEEB BEEC CBEAEB BAEC CBEBDD DDDADADDA CBEBDADDDA DADDB BCBEBADBA BCED DDDABBBBD BCCBA EA BEAEC CBA CBBAECB BBADA BBABC CDA BEBBABC CEEA ABD BAA CCBA CBBAA CBC ADA BDDE CED) 1)
 ;;(dendrogram '(EEEB BEEC CBEAEB BAEC CBEBDD DDDADADDA CBEBDADDDA DADDB BCBEBADBA BCED DDDABBBBD BCCBA EA BEAEC CBA CBBAECB BBADA BBABC CDA BEBBABC CEEA ABD BAA CCBA CBBAA CBC ADA BDDE CED) 2 :diss-fun #'(lambda (a b) (structure-distance a b :root t)) :newick "root" :and-data t)
+
+
 ;;==================================================================
 ;;           SYSTEMIC ANALYSIS Derivative clustering
 ;;==================================================================
@@ -535,6 +549,7 @@ which lengths are successive values of the list <segmentation>.
     (loop for i in (reverse r) collect (reverse (mapcar #'cadr i)))))
 ;;------------------------------------------------------------------
 ;;(cadar (ordinate (count-item-in-list (flat-once (loop for i in '(EEEB BEEC CBEAEB BAEC CBEBDD DDDADADDA CBEBDADDDA DADDB BCBEBADBA BCED DDDABBBBD BCCBA EA BEAEC CBA CBBAECB BBADA BBABC CDA BEBBABC CEEA ABD BAA CCBA CBBAA CBC ADA BDDE CED) collect (serial-pair (string i))))) '> :key 'car))
+
 ;;==================================================================
 ;;             SYSTEMIC ANALYSIS Developmental process
 ;;==================================================================

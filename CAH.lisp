@@ -14,8 +14,8 @@
 (defvar *event* nil)
 
 (defparameter *n-round* 8)
-(defparameter +GA+ (make-instance 'neuron) "Ghost neuron for the center of gravity of a class A, in order to evaluate a distance with +GB+.")
-(defparameter +GB+ (make-instance 'neuron) "Ghost neuron for the center of gravity of a class B, in order to evaluate a distance with +GA+.")
+(defvar +GA+ nil "Ghost object for the center of gravity of a class A, in order to evaluate a distance with +GB+.")
+(defvar +GB+ nil "Ghost object for the center of gravity of a class B, in order to evaluate a distance with +GA+.")
 
 (defgeneric roundd (in &optional n)
   (:method ((in number) &optional (n 0))
@@ -40,13 +40,13 @@
      maximize (if (numberp i) i (car i))))
 
 ;; Ward's method
-(defgeneric gravity-center (lst ghost-neuron)
-  (:documentation "The slots xpos and output of the ghost-neuron are the centers of gravity of the set of neurons of lst."))
+(defgeneric gravity-center (lst ghost)
+  (:documentation "The slots xpos and output of the ghost are the centers of gravity of the set of neurons of lst."))
 
-(defmethod gravity-center ((lst list) (ghost-neuron neuron)) ;; lst --> list of neurons
-  (setf (xpos ghost-neuron) (mapcar #'mean (mat-trans (loop for i in lst collect (xpos (id i)))))
-	(output ghost-neuron) (mapcar #'mean (mat-trans (loop for j in lst collect (output (id j)))))
-	(net ghost-neuron) (net (id (car lst)))))
+(defmethod gravity-center ((lst list) (ghost neuron)) ;; lst --> list of neurons
+  (setf (xpos ghost) (mapcar #'mean (mat-trans (loop for i in lst collect (xpos (id i)))))
+	(output ghost) (mapcar #'mean (mat-trans (loop for j in lst collect (output (id j)))))
+	(net ghost) (net (id (car lst)))))
 
 ;------------------------------------------------------------------
 ;                                                              TREE
@@ -101,18 +101,37 @@
   ;; output leaves list
   *memcache1*)
 
+(defun replace-all (string part replacement &key (test #'char=))
+  "Returns a new string in which all the occurences of the part 
+is replaced with replacement."
+  (with-output-to-string (out)
+    (loop with part-length = (length part)
+       for old-pos = 0 then (+ pos part-length)
+       for pos = (search part string
+			 :start2 old-pos
+			 :test test)
+       do (write-string string out
+			:start old-pos
+			:end (or pos (length string)))
+       when pos do (write-string replacement out)
+       while pos)))
+
 (defmethod tree>nw ((self node) &key with-label (as-root t))
   "Display as a newick structure the <self> node."
   (if as-root
       (let ((copy-node (make-node :label (node-label self) :child (node-child self))))
 	  (tree>nw copy-node :with-label with-label :as-root nil))
       (if (leaf-p self)
-	  (read-from-string (format nil "~A!~A" (node-data self) (node-dist self)))
+	  (read-from-string (format nil "~A!~A"
+				    (cond ((and *event* (eq 'symbol (event-type (id (node-data self))))) (event-data (id (node-data self))))
+					  ((and *event* (eq 'alist (event-type (id (node-data self))))) (replace-all (event-al (id (node-data self))) "#" "§"))
+					  (t (node-data self)))
+				    (node-dist self)))
 	  (cons (loop for i in (node-child self) collect (tree>nw i :with-label with-label :as-root nil))
 		(if (root-p self)
 		    (when with-label (list (read-from-string (format nil "~A" (read-value-in (node-label self))))))
 		    (list (read-from-string (format nil "~A!~A" (if with-label (read-value-in (node-label self)) "") (node-dist self)))))))))
-  
+
 (defun update-tree (it fn-diss)
   (setf *memcache2* nil)
   (loop for i in *tree* do (when (not (member i (car it) :test #'equalp)) (push i *memcache2*)))
@@ -132,15 +151,14 @@
 	     (node-dist n) (if (leaf-p n)
 			       (round (* (expt 10 *n-round*) (abs (read-value-in (node-label (car *memcache2*))))))
 			       (round (* (expt 10 *n-round*) (- (read-value-in (node-label n)) (read-value-in (node-label (car *memcache2*)))))))))
-  (unless *event*
-    (dolist (e *memcache2*)
-		  (setf (node-inertia e)
-			  (let* ((al (mapcar #'node-data (get-leaves e))))
-			    (gravity-center al +GA+)
-			    (/ (loop for l in al sum
-				    (expt
-				     (funcall fn-diss +GA+ l) 2))
-			       (length al))))))
+  (dolist (e *memcache2*)
+      (setf (node-inertia e)
+	    (let* ((al (mapcar #'node-data (get-leaves e))))
+	      (gravity-center al +GA+)
+	      (/ (loop for l in al sum
+		      (expt
+		       (funcall fn-diss +GA+ l) 2))
+		 (length al)))))
   (setf *tree* *memcache2*))
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
@@ -188,14 +206,26 @@
 	;-----------------------  
 	(loop for n in (cons self (remove-duplicates (flatten (mapcar #'car (history self))) :test #'equalp))
 	   do
-	     (format stream "(DEFPARAMETER ~S (MAKE-NODE :LABEL (QUOTE ~S) :CHILD (QUOTE ~S) :PARENT (QUOTE ~S) :DIST (QUOTE ~S) :INERTIA (QUOTE ~S) :DATA ~S)) "
-		     (neuron>ind (id (node-label n)))
-		     (neuron>ind (id (node-label n)))
-		     (loop for i in (node-child n) collect (neuron>ind (id i)))
-		     (neuron>ind (id (node-parent n)))
-		     (node-dist n)
-		     (node-inertia n)
-		     (if (and (listp (node-data n)) (not (null (node-data n)))) (cons 'list (node-data n)) (neuron>ind (id (node-data n))))))
+	     (if *event*
+		 (format stream "(DEFPARAMETER ~S (MAKE-NODE :LABEL (QUOTE ~S) :CHILD (QUOTE ~S) :PARENT (QUOTE ~S) :DIST (QUOTE ~S) :INERTIA (QUOTE ~S) :DATA ~A)) "
+			 (node-label n)
+			 (node-label n)
+			 (node-child n)
+			 (node-parent n)
+			 (node-dist n)
+			 (node-inertia n)
+			 (cond
+			   ((and (listp (node-data n)) (not (null (node-data n)))) (cons 'list (node-data n)))
+			   ((event-p (id (node-data n))) (format nil "(MAKE-EVENT :LABEL ~S :DATA ~S :TYPE ~S :AL ~S)" (list 'quote (event-label (id (node-data n)))) (list 'quote (event-data (id (node-data n)))) (list 'quote (event-type (id (node-data n)))) (event-al (id (node-data n))))) 
+			   (t (node-data n))))
+		 (format stream "(DEFPARAMETER ~S (MAKE-NODE :LABEL (QUOTE ~S) :CHILD (QUOTE ~S) :PARENT (QUOTE ~S) :DIST (QUOTE ~S) :INERTIA (QUOTE ~S) :DATA ~S)) "
+			 (neuron>ind (id (node-label n)))
+			 (neuron>ind (id (node-label n)))
+			 (loop for i in (node-child n) collect (neuron>ind (id i)))
+			 (neuron>ind (id (node-parent n)))
+			 (node-dist n)
+			 (node-inertia n)
+			 (if (and (listp (node-data n)) (not (null (node-data n)))) (cons 'list (node-data n)) (neuron>ind (id (node-data n)))))))
 	;-----------------------
 	(format stream "(SETF *TREE* ~S)" self))
       (UIOP:run-program (format nil "sh -c '~S ~S ~S'" *UPDATE-SAVED-NET* path (if *event* 1 0))))))
@@ -250,7 +280,7 @@
 (defun mk-diss (pair fn-diss &key ward)
   (let ((lst1 (get-leaves (car pair)))
 	(lst2 (get-leaves (cadr pair))))
-    (if (and ward (null *event*))
+    (if ward
 	(progn
 	  (gravity-center (mapcar #'node-data lst1) +GA+)
 	  (gravity-center (mapcar #'node-data lst2) +GB+)
@@ -262,10 +292,10 @@
 	   (when (not (numberp i))
 	     (loop for j in (loop for az in lst2 collect (read-value-in az))
 		do
-		  (when (and (not (numberp j)) (not (eq i j)))
+		  (when (and (not (numberp j)) (not (eq i j))) 
 		    (push (funcall fn-diss
-				   (if *event* (format nil "~S" i) (id i))
-				   (if *event* (format nil "~S" j) (id j))) r)))))
+				   (if *event* (event-data (node-data (id (read-from-string (format nil "~a+" i))))) (id i))
+				   (if *event* (event-data (node-data (id (read-from-string (format nil "~a+" j))))) (id j))) r)))))
       (roundd r *n-round*)))))
 
 (defun rec-if (val)
@@ -285,7 +315,7 @@ if a = 1 --> single linkage
 		   (case a
 		     (1 (cons (mini (mk-diss i fn-diss)) i))
 		     (2 (cons (maxi (mk-diss i fn-diss)) i))
-		     (3 (unless *event* (cons (mk-diss i fn-diss :ward t) i))))))
+		     (3 (cons (mk-diss i fn-diss :ward t) i)))))
 	 (result (reverse (assoc (loop for i in res minimize (car i)) res))))
     (list (butlast result)
 	  (rec-if (* -1 (car (last result)))))))
@@ -299,6 +329,8 @@ if a = 1 --> single linkage
 
 (defmethod dendrogram ((self som) (aggregation integer) &key (diss-fun (distance-in self)) (newick t) with-label and-data)
   (setf
+   +GA+ (make-instance 'neuron)
+   +GB+ (make-instance 'neuron) 
    *event* nil
    *tree* '())
   (dolist (e (neurons-list self)) (push (setf (symbol-value (intern (format nil "~S+" e))) (make-node :label (read-from-string (format nil "~A+" e)) :data (id e))) *tree*))

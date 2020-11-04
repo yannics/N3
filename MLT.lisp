@@ -279,7 +279,7 @@ nil = check if e1 and e2 are in common one node;
 
 (defun ht (ht &optional (key :k))
   (case key
-    (:k (let (r) (maphash (lambda (k v) (declare (ignore v)) (push k r)) ht) r))
+    (:k (let (r) (maphash (lambda (k v) (declare (ignore v)) (push k r)) ht)  r))
     (:al (let (r) (maphash (lambda (k v) (push (cons k v) r)) ht) r))
     (:p (format t "~&~s~%" ht) (maphash (lambda (k v) (format t "~@<~S~20T~3I~_~S~:>~%" k v)) ht))))
 
@@ -324,18 +324,6 @@ The key :test manages the weights as a mean value by default."))
 (defmethod chain-match ((self mlt) (chain list))
   (loop for i in (ht (trns self) :k) when (search chain i :test #'(lambda (a b) (or (eq a '?) (= a b)))) collect i))
 
-(defun mean (xlst &optional wlst)
-  (if xlst 
-      (if wlst
-	  (float (/ (apply #'+ (mapcar #'* xlst wlst)) (apply #'+ wlst)))
-	  (float (/ (apply #'+ xlst) (length xlst))))
-      0.0))
-
-(defmethod get-weight ((self mlt) (chain-list list) &key (remanence t) (test #'mean)) ;; chain-list = result of locate-tournoi
-  (if remanence
-      (loop for i in chain-list collect (gethash i (trns self)))
-      (loop for i in chain-list collect (funcall test (loop for i in (get-arc-from-tournoi i) collect (if (gethash i (arcs self)) (gethash i (arcs self)) 0))))))
-
 (defun complist (a nl &optional (add 1))
   (cond ((and (numberp a) (integerp nl)) (complist (list a) nl add))
 	((and (numberp a) (listp nl)) (complist (list a) (length nl) add))
@@ -349,6 +337,22 @@ The key :test manages the weights as a mean value by default."))
 		    (push add l))
 	       (reverse l))))
 	(t nil)))
+
+(defun mean (xlst &optional wlst)
+  (labels ((res (xlst &optional wlst)
+	     (if xlst 
+		 (if wlst
+		     (float (/ (apply #'+ (mapcar #'* xlst (complist wlst (length xlst) 1))) (apply #'+ wlst)))
+		     (float (/ (apply #'+ xlst) (length xlst))))
+		 0.0)))
+    (cond ((loop for x in xlst always (numberp x)) (res xlst wlst))
+	  ((loop for x in xlst always (listp x)) (mapcar #'res (mat-trans xlst)))
+	  (t nil))))
+
+(defmethod get-weight ((self mlt) (chain-list list) &key (remanence t) (test #'mean)) ;; chain-list = result of locate-tournoi
+  (if remanence
+      (loop for i in chain-list collect (gethash i (trns self)))
+      (loop for i in chain-list collect (funcall test (loop for i in (get-arc-from-tournoi i) collect (if (gethash i (arcs self)) (gethash i (arcs self)) 0))))))
 
 (defun normalize-sum (lst) (let ((sum (reduce #'+ lst))) (loop for i in lst collect (/ i sum))))
 
@@ -436,8 +440,7 @@ as arcs forming the tournoi when self is MLT, then a = tournoi = T (as integer) 
 	 (ult (loop for i in res collect (list (caar i) (mean (mapcar #'cadr i))))))
     (ordinate (mapcar #'list (mapcar #'car ult) (normalize-sum (mapcar #'cadr ult))) #'> :key #'cadr)))
 
-(defun singleton (lst)
-  (when (and (listp lst) (= 1 (length lst))) t))
+(defun singleton (lst) (and (listp lst) (= 1 (length lst))))
 
 (defgeneric next-event-probability (head self &key result remanence compute))
 (defmethod next-event-probability ((head list) (self mlt) &key (result :eval) (remanence t) (compute #'rnd-weighted))

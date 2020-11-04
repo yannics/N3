@@ -63,7 +63,7 @@ Note that the output is clipped if the range of input is largest than values of 
 
 (defgeneric zero-a (x &optional quasi-zero)
  (:documentation "Replace all quasi-zero by zero.")
-;; zero-a is [...] a kind of deleuzian un-differentiation...
+ ;; zero-a is [...] a kind of deleuzian un-differentiation...
  (:method ((x number) &optional (quasi-zero .00001)) (if (< (abs x) quasi-zero) 0.0 x))
  (:method ((x list) &optional (quasi-zero .00001)) (mapcar #'(lambda (a) (zero-a a quasi-zero)) x)))
 
@@ -173,6 +173,12 @@ Note that the output is clipped if the range of input is largest than values of 
 		 (format t "Updated: ~a~&---> ~a~&" (tps (car i)) (cdr i))
 		 (progn (format t "Modified: ~a~&" (tps (car i))) (format t (cdr i)) (format t "~&"))))
 	(format t "Created: ~a~&---> ~a~&" (tps (caar (last mht))) (cdar (last mht)))))))
+
+(defmethod history ((self list) &optional (opt #'(lambda (x) (mapcar #'reverse (if (loop for i in x always (numberp (cadr i))) (ordinate x #'< :key #'cadr) (ordinate x #'< :key #'car))))))
+  (labels ((cil (lst &optional r)
+	     (dolist (e (remove-duplicates lst :test #'equalp) r)
+	       (push (list (count e lst :test #'equalp) e) r))))
+    (if (functionp opt) (funcall opt (cil self)) (history self))))
 
 ;;; ;;  ;;;;   ;; ;; ;  ;   ;   ; 
 	    
@@ -378,6 +384,9 @@ Also, 'all-combinations' is a misnomer to refers in fact to an 'all-permutations
 
 ;;; ;;    ;  ; ;  ;;; ;  ;;  ;;; ;;    ;
 
+(defstruct (event (:print-function (lambda (p s k) (declare (ignore k)) (format s "~A" (event-label p))))) label data type al)
+(defmethod id ((self event)) self)
+
 (defun x->dx (lst)
   (loop for x in lst
      for y in (rest lst)
@@ -459,9 +468,10 @@ Also, 'all-combinations' is a misnomer to refers in fact to an 'all-permutations
 	(when res (setf res (cons (- x (car res)) (cdr res))))
 	(lx->dx (cdr lx) cluster (push x res))) 
       (reverse (cdr res))))
-    
-(defun differential-vector (xs/l1 xs/l2 &key (result :diff-norm) (opt :mean) (thres 0.2) (ended :ignore) (tolerance :no) (cluster :median))
-  "Returns in terms of distance the normalized norm of the vector or its coordinates:
+
+(defgeneric differential-vector (a b &key result opt thres ended tolerance cluster)
+  (:documentation
+   "Returns in terms of distance the normalized norm of the vector or its coordinates:
  - <result :diff-coord> (1-x 1-y),
  - <result :diff-norm> [default] ||(1-x 1-y)||,
  - <result :sim-coord> (x y),
@@ -483,40 +493,49 @@ The key tolerance concerns the primitive concordance as 1 = 0 and -1 = 0:
   - <tolerance :yes>.
 The input xs/l has to be a list of durations and its respective profile level as follow: 
 ((dur-1 dur-2 ... dur-n) (val-1 val-2 ...val-n))
-Note that each list of durations is scaled such as sum of durations is equal to 1 and val-i is a positive number or a list of positive numbers."
-(if (null xs/l2)
-    (let ((r (list)))
-      (dotimes (i (length xs/l1) (nreverse r))
-	(loop for j from (1+ i) to (1- (length xs/l1)) do
-	     (push (list i j (differential-vector (nth i xs/l1) (nth j xs/l1) :result result :opt opt :thres thres :ended ended :tolerance tolerance :cluster cluster)) r))))
-    (let* ((l1 (dur>onset xs/l1 ended))
-	   (l2 (dur>onset xs/l2 ended))
-	   (lx1 (filternoway (subseq-thres (car l1) (car l2) thres)))
-	   (lx2 (filternoway (subseq-thres (car l2) (car l1) thres)))
-	   (p1 (mapcar #'(lambda (x) (flatten (loop for i in x collect (cadr (assoc i (mat-trans (butlast l2))))))) lx1))
-	   (p2 (mapcar #'(lambda (x) (flatten (loop for i in x collect (cadr (assoc i (mat-trans (butlast l1))))))) lx2))
-	   (seqsort (sort (list (length (car xs/l1)) (length (car xs/l2))) #'<))
-	   (x (case opt
-		(:min (/ (if (eq ended :ignore) (length lx1) (1- (length lx1))) (car seqsort) 1.0))
-		(:max (/ (if (eq ended :ignore) (length lx1) (1- (length lx1))) (cadr seqsort) 1.0))
-		(:mean (/ (if (eq ended :ignore) (length lx1) (1- (length lx1))) (mean seqsort)))))
-	   (y (mapcar #'(lambda (a b)
-			  (case tolerance
-			    (:no (if (= (prim a) (prim b)) 1 0))
-			    (:yes (if (or (= 1 (abs (+ (prim a) (prim b)))) (= (prim a) (prim b))) 1 0))
-			    (otherwise (error "The key :tolerance requires as arguments either the keyword :yes or :no."))))
-		      (lx->dx p1 cluster) (lx->dx p2 cluster))))
-      (when *debug* (format t "l1: ~S~&l2: ~S~&lx1: ~S~&lx2: ~S~&p1: ~S~&p2: ~S~&seqsort: ~S~&x: ~S~&y: ~S~&lxp1: ~S~&lxp2: ~S~&lx1nof: ~S~&lx2nof: ~S~&" l1 l2 lx1 lx2 p1 p2 seqsort x y (lx->dx p1 cluster) (lx->dx p2 cluster) (subseq-thres (car l1) (car l2) thres) (subseq-thres (car l2) (car l1) thres)))
-      (case result
-	(:diff-x (values (- 1 x) (/ (sqrt (+ (expt (- 1 x) 2) (expt (- 1 (mean y)) 2))) (sqrt 2))))
-	(:diff-y (values (- 1 (mean y)) (/ (sqrt (+ (expt (- 1 x) 2) (expt (- 1 (mean y)) 2))) (sqrt 2))))
-	(:diff-norm (values (/ (sqrt (+ (expt (- 1 x) 2) (expt (- 1 (mean y)) 2))) (sqrt 2)) (list (- 1 x) (- 1 (mean y)))))
-	(:diff-coord (values (list (- 1 x) (- 1 (mean y))) (/ (sqrt (+ (expt (- 1 x) 2) (expt (- 1 (mean y)) 2))) (sqrt 2))))
-	(:diff-list (list (/ (sqrt (+ (expt (- 1 x) 2) (expt (- 1 (mean y)) 2))) (sqrt 2)) (- 1 x) (- 1 (mean y))))
-	(:sim-x (values x (/ (sqrt (+ (expt x 2) (expt (mean y) 2))) (sqrt 2))))
-	(:sim-y (values (mean y) (/ (sqrt (+ (expt x 2) (expt (mean y) 2))) (sqrt 2))))
-	(:sim-norm (values (/ (sqrt (+ (expt x 2) (expt (mean y) 2))) (sqrt 2)) (list x (mean y))))
-	(:sim-coord (values (list x (mean y)) (/ (sqrt (+ (expt x 2) (expt (mean y) 2))) (sqrt 2))))
-	(:sim-list (list (/ (sqrt (+ (expt x 2) (expt (mean y) 2))) (sqrt 2)) x (mean y)))))))
+Note that each list of durations is scaled such as sum of durations is equal to 1 and val-i is a positive number or a list of positive numbers."))
+
+(defmethod differential-vector ((xs/l1 list) (xs/l2 list) &key (result :diff-norm) (opt :mean) (thres 0.2) (ended :ignore) (tolerance :no) (cluster :median))
+  (let* ((l1 (dur>onset xs/l1 ended))
+	 (l2 (dur>onset xs/l2 ended))
+	 (lx1 (filternoway (subseq-thres (car l1) (car l2) thres)))
+	 (lx2 (filternoway (subseq-thres (car l2) (car l1) thres)))
+	 (p1 (mapcar #'(lambda (x) (flatten (loop for i in x collect (cadr (assoc i (mat-trans (butlast l2))))))) lx1))
+	 (p2 (mapcar #'(lambda (x) (flatten (loop for i in x collect (cadr (assoc i (mat-trans (butlast l1))))))) lx2))
+	 (seqsort (sort (list (length (car xs/l1)) (length (car xs/l2))) #'<))
+	 (x (case opt
+	      (:min (/ (if (eq ended :ignore) (length lx1) (1- (length lx1))) (car seqsort) 1.0))
+	      (:max (/ (if (eq ended :ignore) (length lx1) (1- (length lx1))) (cadr seqsort) 1.0))
+	      (:mean (/ (if (eq ended :ignore) (length lx1) (1- (length lx1))) (mean seqsort)))))
+	 (y (mapcar #'(lambda (a b)
+			(case tolerance
+			  (:no (if (= (prim a) (prim b)) 1 0))
+			  (:yes (if (or (= 1 (abs (+ (prim a) (prim b)))) (= (prim a) (prim b))) 1 0))
+			  (otherwise (error "The key :tolerance requires as arguments either the keyword :yes or :no."))))
+		    (lx->dx p1 cluster) (lx->dx p2 cluster))))
+    (when *debug* (format t "l1: ~S~&l2: ~S~&lx1: ~S~&lx2: ~S~&p1: ~S~&p2: ~S~&seqsort: ~S~&x: ~S~&y: ~S~&lxp1: ~S~&lxp2: ~S~&lx1nof: ~S~&lx2nof: ~S~&" l1 l2 lx1 lx2 p1 p2 seqsort x y (lx->dx p1 cluster) (lx->dx p2 cluster) (subseq-thres (car l1) (car l2) thres) (subseq-thres (car l2) (car l1) thres)))
+    (case result
+      (:diff-x (values (- 1 x) (/ (sqrt (+ (expt (- 1 x) 2) (expt (- 1 (mean y)) 2))) (sqrt 2))))
+      (:diff-y (values (- 1 (mean y)) (/ (sqrt (+ (expt (- 1 x) 2) (expt (- 1 (mean y)) 2))) (sqrt 2))))
+      (:diff-norm (values (/ (sqrt (+ (expt (- 1 x) 2) (expt (- 1 (mean y)) 2))) (sqrt 2)) (list (- 1 x) (- 1 (mean y)))))
+      (:diff-coord (values (list (- 1 x) (- 1 (mean y))) (/ (sqrt (+ (expt (- 1 x) 2) (expt (- 1 (mean y)) 2))) (sqrt 2))))
+      (:diff-list (list (/ (sqrt (+ (expt (- 1 x) 2) (expt (- 1 (mean y)) 2))) (sqrt 2)) (- 1 x) (- 1 (mean y))))
+      (:sim-x (values x (/ (sqrt (+ (expt x 2) (expt (mean y) 2))) (sqrt 2))))
+      (:sim-y (values (mean y) (/ (sqrt (+ (expt x 2) (expt (mean y) 2))) (sqrt 2))))
+      (:sim-norm (values (/ (sqrt (+ (expt x 2) (expt (mean y) 2))) (sqrt 2)) (list x (mean y))))
+      (:sim-coord (values (list x (mean y)) (/ (sqrt (+ (expt x 2) (expt (mean y) 2))) (sqrt 2))))
+      (:sim-list (list (/ (sqrt (+ (expt x 2) (expt (mean y) 2))) (sqrt 2)) x (mean y))))))
+
+(defmethod differential-vector ((a event) (b event) &key (result :diff-norm) (opt :mean) (thres 0.2) (ended :ignore) (tolerance :no) (cluster :median))
+  (differential-vector (event-data a) (event-data b) :result result :opt opt :thres thres :ended ended :tolerance tolerance :cluster cluster))
+
+(defmethod differential-vector ((a list) (b null) &key (result :diff-norm) (opt :mean) (thres 0.2) (ended :ignore) (tolerance :no) (cluster :median))
+  (let ((r (list)))
+    (dotimes (i (length a) (nreverse r))
+      (loop for j from (1+ i) to (1- (length a)) do
+	   (push (list i j (differential-vector (nth i a) (nth j a) :result result :opt opt :thres thres :ended ended :tolerance tolerance :cluster cluster)) r)))))
+
+(defmethod differential-vector ((a null) (b list) &key (result :diff-norm) (opt :mean) (thres 0.2) (ended :ignore) (tolerance :no) (cluster :median))
+  (differential-vector b a :result result :opt opt :thres thres :ended ended :tolerance tolerance :cluster cluster))
 
 ;------------------------------------------------------------------
