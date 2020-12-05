@@ -116,7 +116,7 @@ nil = check if e1 and e2 are in common one node;
 
 (defmethod update-indice ((self mlt) (edge-list list) (new-fanaux-list list) (surjection list) &optional sp)
   (declare (ignore sp))
-  (loop for i in edge-list collect (position (nth (random (length (nth i surjection))) (nth i surjection)) (loop for f in new-fanaux-list collect (id f)) :test #'equalp)))
+  (loop for i in edge-list collect (when i (position (nth (random (length (nth i surjection))) (nth i surjection)) (loop for f in new-fanaux-list collect (id f)) :test #'equalp))))
 
 (defun update-ht (table lst sr)
   (let ((mh (gethash lst table)))
@@ -165,11 +165,12 @@ nil = check if e1 and e2 are in common one node;
 		      (gethash ct (date-report area)) (format nil "#<MLT ~a> ~S" self ct)))))
 	  
 	  ;; reset all hash table and set new-fanaux-list ...
-	  (progn
+	  (let ((area (id (net self))))
 	    (clrhash (trns self))
 	    (clrhash (arcs self))
 	    (setf (mct self) '()
 		  (fanaux-list self) nfl
+		  (fanaux-length area) (replace-a (length nfl) (position self (loop for i in (soms-list area) collect (id i)) :test #'equalp) (fanaux-length area))
 		  (gethash ct (date-report self)) (format nil "---> #<EPOCH ~S> ~~%---> #<NFL ~a> ~~%---> #<OFL NIL>" (epoch self) nfl))))))
   (values))
 
@@ -338,6 +339,9 @@ The key :test manages the weights as a mean value by default."))
 	       (reverse l))))
 	(t nil)))
 
+(defun mat-trans (lst)
+  (apply #'mapcar #'list lst))
+
 (defun mean (xlst &optional wlst)
   (labels ((res (xlst &optional wlst)
 	     (if xlst 
@@ -403,20 +407,20 @@ as arcs forming the tournoi when self is MLT, then a = tournoi = T (as integer) 
     (:onset (setf (mem-cache self) (list t)))
     (:fine (update-ht (fine self) (mct self) (if (net self) (sensorial-rate (id (net self))) 1))
 	   (let ((lst (cons nil (mct self))))
-	     (setf (mct self) (if (<= (length lst) (cover-value self)) lst (butlast lst)))))
+	     (setf (mct self) (if (<= (length lst) (cover-value self)) lst (cdr lst)))))
     (otherwise (warn "The keyword should be set to :onset or :fine"))))
 
 (defun split-mct (mct)
-  (loop for i in mct until (null i) collect i))
+  (reverse (loop for i in (reverse mct) until (null i) collect i)))
 
 (defmethod add-edge ((self mlt) (node integer) (sr number))
   (when (mem-cache self)
-    (push node (mem-cache self))
+    (setf (mem-cache self) (reverse (cons node (reverse (mem-cache self)))))
     (when (> (length (mem-cache self)) (cover-value self))
-      (update-ht (onset self) (butlast (mem-cache self)) (if (net self) (sensorial-rate (id (net self))) 1))
+      (update-ht (onset self) (cdr (mem-cache self)) (if (net self) (sensorial-rate (id (net self))) 1))
       (setf (mem-cache self) nil))) 
-  (let* ((lst (cons node (mct self)))
-	 (trn (if (<= (length lst) (cover-value self)) lst (butlast lst)))
+  (let* ((lst (reverse (cons node (reverse (mct self)))))
+	 (trn (if (<= (length lst) (cover-value self)) lst (cdr lst)))
 	 (smct (split-mct trn)))
     (when (= (length smct) (cover-value self)) (update-ht (trns self) smct sr))
     (when (> (length smct) 1) (mapcar #'(lambda (l) (update-ht (arcs self) l sr)) (get-arc-from-tournoi smct)))
@@ -424,49 +428,53 @@ as arcs forming the tournoi when self is MLT, then a = tournoi = T (as integer) 
 
 (defmethod learn :after ((self mlt) &key seq)
   (when (and seq (fanaux-list self))
-    (let ((pos (position (car (last (car (nearest self (id (neuron-gagnant self)) :n-list (fanaux-list self) :d-list nil)))) (fanaux-list self))))
-      (add-edge self pos (if (net self) (sensorial-rate (id (net self))) 1)))))
+    (if (is-winner-ghost self)
+	(let ((lst (reverse (cons nil (reverse (mct self))))))
+	  (setf (mct self) (if (<= (length lst) (cover-value self)) lst (cdr lst))))
+	(let ((pos (position (car (last (car (nearest self (id (neuron-gagnant self)) :n-list (fanaux-list self) :d-list nil)))) (fanaux-list self))))
+	  (add-edge self pos (if (net self) (sensorial-rate (id (net self))) 1))))))
 
 ;------------------------------------------------------------------
 ;                                            NEXT-EVENT-PROBABILITY    
 
 (defgeneric group-list (lst seg &optional mode))
 (defmethod group-list ((lt list) (seg mlt) &optional mode)
-  (declare (ignore seg mode))
+  (declare (ignore seg))
   (let* ((rlt (mapcar #'reverse lt))
 	 (np (remove-duplicates (loop for i in rlt collect (car (last (car i))))))
 	 (res (loop for i in np collect
 		   (loop for j in rlt when (= i (car (last (car j)))) collect (list i (cadr j)))))
-	 (ult (loop for i in res collect (list (caar i) (mean (mapcar #'cadr i))))))
-    (ordinate (mapcar #'list (mapcar #'car ult) (normalize-sum (mapcar #'cadr ult))) #'> :key #'cadr)))
+	 (ult (loop for i in res collect (list (caar i) (mean (mapcar #'cadr i)))))
+	 (ultt (if mode (loop for i in ult when (member (car i) (list! mode)) collect i) ult)))
+    (ordinate (mapcar #'list (mapcar #'car ultt) (normalize-sum (mapcar #'cadr ultt))) #'> :key #'cadr)))
 
 (defun singleton (lst) (and (listp lst) (= 1 (length lst))))
 
-(defgeneric next-event-probability (head self &key result remanence compute))
-(defmethod next-event-probability ((head list) (self mlt) &key (result :eval) (remanence t) (compute #'rnd-weighted))
+(defgeneric next-event-probability (head self &key result remanence compute opt))
+(defmethod next-event-probability ((head list) (self mlt) &key (result :eval) (remanence t) (compute #'rnd-weighted) opt)
   (let ((hist
 	 (if remanence
 	     (locate-tournoi self (reverse (complist (cons '? (reverse head)) (cover-value self) '?)) :remanence t)
 	     (locate-tournoi self (if (singleton head) (complist (cons '? head) 3 '?) (reverse (cons '? (reverse head)))) :remanence nil))))
     (when hist
       (case result
-	(:prob (loop for i in (group-list hist self) collect (list (* 1.0 (cadr i)) (car i))))
-	(:verbose (loop for i in (group-list hist self) do
+	(:prob (loop for i in (group-list hist self opt) collect (list (* 1.0 (cadr i)) (car i))))
+	(:verbose (loop for i in (group-list hist self opt) do
 		       (format t "~@<~S => ~3I~_~,6f %~:>~%" (car i) (* 100.0 (cadr i)))))
-	(:eval (funcall compute (group-list hist self)))))))
+	(:eval (funcall compute (group-list hist self opt)))))))
 
-(defmethod next-event-probability ((head integer) (self mlt) &key (result :eval) (remanence t) (compute #'rnd-weighted))
-  (next-event-probability (list '? head) self :remanence remanence :result result :compute compute))
+(defmethod next-event-probability ((head integer) (self mlt) &key (result :eval) (remanence t) (compute #'rnd-weighted) opt)
+  (next-event-probability (list '? head) self :remanence remanence :result result :compute compute :opt opt))
 
-(defmethod next-event-probability ((head null) (self mlt) &key (result :eval) (remanence t) (compute #'rnd-weighted))
+(defmethod next-event-probability ((head null) (self mlt) &key (result :eval) (remanence t) (compute #'rnd-weighted) opt)
   (declare (ignore head))
   (let ((hist (all-tournoi self :order (cover-value self) :remanence remanence)))
     (when hist
       (case result
-	(:prob (group-list hist self))
-	(:verbose (loop for i in (group-list hist self) do
-		       (format t "~@<~S => ~3I~_~,6f %~:>~%" (cadr i) (* 100.0 (car i)))))
-	(:eval (funcall compute (group-list hist self)))))))
+	(:prob (loop for i in (group-list hist self opt) collect (list (* 1.0 (cadr i)) (car i))))
+	(:verbose (loop for i in (group-list hist self opt) do
+		       (format t "~@<~S => ~3I~_~,6f %~:>~%" (car i) (* 100.0 (cadr i)))))
+	(:eval (funcall compute (group-list hist self opt))))))) ;; return the result itself + probability of the selected candidat
   
 ;------------------------------------------------------------------
 ;                                                UPDATE-COVER-VALUE    

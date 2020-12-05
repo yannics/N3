@@ -125,6 +125,8 @@
     :initform nil :initarg :field :accessor field)
    (topology
     :initform 2 :initarg :topology :accessor topology :type integer)
+   (ghost
+    :initform nil :initarg :ghost :accessor ghost)
    ))
 
 ;; redefines lisp representation (-> print-name)
@@ -136,6 +138,9 @@
 (defmethod som-p ((self som)) t)
 (defmethod som-p ((self t)) nil)
 (defmethod id ((self som)) self)
+
+(defgeneric is-winner-ghost (self)
+  (:method ((self som)) (null (ind (id (neuron-gagnant self))))))
 
 ;------------------------------------------------------------------
 ;                                                    INITIALISATION       
@@ -160,7 +165,8 @@
 	    (neurons-list self)))
     (setf (nbre-neurons self) nn
 	  (nbre-input self) nbre-input
-	  (gethash (get-universal-time) (date-report self)) (format nil "(init-som #<RNA ~a> ~a ~a :carte #<FUNCTION ~a> :topology ~a :field ~a)" self nbre-input nbre-neurons (let ((mvl (multiple-value-list (function-lambda-expression (carte self))))) (cond ((listp (car (last mvl))) (format nil "~S" (if (ml? (carte self)) (ml! (carte self)) (carte self)))) (t (format nil "~S" (car (last mvl)))))) (topology self) (field self))))
+	  (gethash (get-universal-time) (date-report self)) (format nil "(init-som #<RNA ~a> ~a ~a :carte #<FUNCTION ~a> :topology ~a :field ~a)" self nbre-input nbre-neurons (let ((mvl (multiple-value-list (function-lambda-expression (carte self))))) (cond ((listp (car (last mvl))) (format nil "~S" (if (ml? (carte self)) (ml! (carte self)) (carte self)))) (t (format nil "~S" (car (last mvl)))))) (topology self) (field self))
+	  (ghost self) (make-instance 'neuron :name 'ghost :net (name self))))
   (values self))
 
 (defmethod init-som :after ((self som) (nbre-input integer) (nbre-neurons integer) &key carte topology field)
@@ -184,14 +190,15 @@
 (defmethod activation ((self som) &key seq)
   (declare (ignore seq))
   (dolist (n (neurons-list self))
-	  (activation n))
-  (if (zerop (reduce #'+ (input self))) nil t))
+    (activation n))
+  (not (zerop (reduce #'+ (input self)))))
 
 (defmethod winner ((self som))
-  (activation self)
-  (loop for j in (neurons-list self) 
-     when (= (erreur j) (loop for i in (neurons-list self) minimize (erreur i)))
-     return j))
+  (if (activation self)
+      (loop for j in (neurons-list self) 
+	 when (= (erreur j) (loop for i in (neurons-list self) minimize (erreur i)))
+	 return j)
+      (ghost self)))
 
 ;------------------------------------------------------------------
 ;                                                          LEARNING    
@@ -202,7 +209,7 @@
   (setf (neuron-gagnant self)
 	(winner self))
   ;; neighbourhood correction
-  (unless seq
+  (unless (or seq (is-winner-ghost self))
     (loop for n in (neurons-list self) do   
 	 (let ((dist (funcall (distance-in self) (id (neuron-gagnant self)) n))
 	       (sl))

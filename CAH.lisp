@@ -151,14 +151,15 @@ is replaced with replacement."
 	     (node-dist n) (if (leaf-p n)
 			       (round (* (expt 10 *n-round*) (abs (read-value-in (node-label (car *memcache2*))))))
 			       (round (* (expt 10 *n-round*) (- (read-value-in (node-label n)) (read-value-in (node-label (car *memcache2*)))))))))
-  (dolist (e *memcache2*)
+  (unless (and (event-p +GA+) (eq 'symbol (event-type +GA+)))
+    (dolist (e *memcache2*)
       (setf (node-inertia e)
 	    (let* ((al (mapcar #'node-data (get-leaves e))))
 	      (gravity-center al +GA+)
 	      (/ (loop for l in al sum
 		      (expt
 		       (funcall fn-diss +GA+ l) 2))
-		 (length al)))))
+		 (length al))))))
   (setf *tree* *memcache2*))
 
 ; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
@@ -197,7 +198,9 @@ is replaced with replacement."
 	 (if *event*
 	     (concatenate 'string *event* ".tree")
 	     (format nil "~A~A/~A~A~A.tree" *N3-BACKUP-DIRECTORY* (car (node-data self)) (cadr (node-data self)) (node-label self) (epoch (id (read-from-string (car (node-data self)))))))))
-    (unless *event* (ensure-directories-exist (format nil "~A~A/" *N3-BACKUP-DIRECTORY* (car (node-data self)))))
+    (if *event*
+	(ensure-directories-exist (format nil "~Astructure/" *N3-BACKUP-DIRECTORY*))
+	(ensure-directories-exist (format nil "~A~A/" *N3-BACKUP-DIRECTORY* (car (node-data self)))))
     (progn
       (with-open-file (stream path
 			      :direction :output
@@ -207,7 +210,7 @@ is replaced with replacement."
 	(loop for n in (cons self (remove-duplicates (flatten (mapcar #'car (history self))) :test #'equalp))
 	   do
 	     (if *event*
-		 (format stream "(DEFPARAMETER ~S (MAKE-NODE :LABEL (QUOTE ~S) :CHILD (QUOTE ~S) :PARENT (QUOTE ~S) :DIST (QUOTE ~S) :INERTIA (QUOTE ~S) :DATA ~A)) "
+		 (format stream "(DEFPARAMETER ~S (MAKE-NODE :LABEL (QUOTE ~S) :CHILD (QUOTE ~S) :PARENT (QUOTE ~S) :DIST (QUOTE ~S) :INERTIA (QUOTE ~S) :DATA ~S)) "
 			 (node-label n)
 			 (node-label n)
 			 (node-child n)
@@ -216,7 +219,7 @@ is replaced with replacement."
 			 (node-inertia n)
 			 (cond
 			   ((and (listp (node-data n)) (not (null (node-data n)))) (cons 'list (node-data n)))
-			   ((event-p (id (node-data n))) (format nil "(MAKE-EVENT :LABEL ~S :DATA ~S :TYPE ~S :AL ~S)" (list 'quote (event-label (id (node-data n)))) (list 'quote (event-data (id (node-data n)))) (list 'quote (event-type (id (node-data n)))) (event-al (id (node-data n))))) 
+			   ((event-p (id (node-data n))) (read-from-string (format nil "(MAKE-EVENT :LABEL ~S :DATA ~S :TYPE ~S :AL ~S)" (list 'quote (event-label (id (node-data n)))) (list 'quote (event-data (id (node-data n)))) (list 'quote (event-type (id (node-data n)))) (event-al (id (node-data n)))))) 
 			   (t (node-data n))))
 		 (format stream "(DEFPARAMETER ~S (MAKE-NODE :LABEL (QUOTE ~S) :CHILD (QUOTE ~S) :PARENT (QUOTE ~S) :DIST (QUOTE ~S) :INERTIA (QUOTE ~S) :DATA ~S)) "
 			 (neuron>ind (id (node-label n)))
@@ -254,26 +257,28 @@ is replaced with replacement."
     (when items
       (format t ";---------------~%")
       (dotimes (item-number (length items))
-	(format t "~45<~A: ~A ...~;... ~A~>~%" (+ item-number 1)
-		(cadr (reverse (split-path (string (nth item-number items)))))
-		(caddr (reverse (split-path (string (nth item-number items)))))
-		))
+	(let ((rsp (reverse (split-path (string (nth item-number items))))))
+	  (format t "~45<~A: ~A ...~;... ~A~>~%" (+ item-number 1)
+		  (if (string= "STRUCTURE" (cadr rsp)) (car (split-symbol (read-from-string (car rsp)) #\.)) (cadr rsp))
+		  (if (string= "STRUCTURE" (cadr rsp)) (cadr rsp) (caddr rsp)))))  
       (format t "Load (Type any key to escape): ")
       (let ((val (read))) 
 	(when (member val (loop for i from 1 to (length items) collect i))
-	  (let* ((dir (concatenate 'string *N3-BACKUP-DIRECTORY* (subseq (string (nth (- val 1) items)) 2 (- (length (string (nth (- val 1) items))) 4)) "tree"))
-		 (rna (read-from-string (caddr (reverse (split-path dir))))))
-	    (if (som-p (id rna))
-		(progn
-		  (UIOP:run-program (format nil "sh -c 'cd ~A; cp ~A .tmp'" (directory-namestring dir) dir))
-		  (loop for i in (neurons-list (id rna))
-		     do
-		       (UIOP:run-program (format nil "sh -c 'cd ~A; cat .tmp | sed \"s/ ~S+/ ~S+/g; s/(~S+/(~S+/g; s/:DATA ~S)/:DATA (QUOTE ~S))/g\" > .foo; mv .foo .tmp'" (directory-namestring dir) (neuron>ind (id i)) (neuron<ind (id rna) (id i)) (neuron>ind (id i)) (neuron<ind (id rna) (id i)) (neuron>ind (id i)) (neuron<ind (id rna) (id i)))))
-		  (load (concatenate 'string (directory-namestring dir) ".tmp"))
-		  (format t "~45<TREE[~A] ...~;... loaded ...~>~%" (tff (string (caddr (split-path (string (nth (1- val) items)))))))
-		  (UIOP:run-program (format nil "sh -c 'cd ~A; rm .tmp'" (directory-namestring dir))))
-		(warn "This tree has been built from the neural network ~S. The latter should be loaded first ..." rna))))))))
-
+	  (let ((dir (concatenate 'string *N3-BACKUP-DIRECTORY* (subseq (string (nth (- val 1) items)) 2 (- (length (string (nth (- val 1) items))) 4)) "tree")))
+	    (cond ((string= "STRUCTURE" (cadr (reverse (split-path dir))))
+		   (load (concatenate 'string  *N3-BACKUP-DIRECTORY* "structure/" (car (reverse (split-path dir)))))
+		   (format t "~45<TREE[-~A+] ...~;... loaded ...~>~%" (cadr (split-1 (car (split-1 (caddr (split-path (string (nth (1- val) items)))) ".")) "-"))))
+		  ((som-p (id (read-from-string (caddr (reverse (split-path dir))))))
+		   (let ((rna (read-from-string (caddr (reverse (split-path dir))))))
+		     (UIOP:run-program (format nil "sh -c 'cd ~A; cp ~A .tmp'" (directory-namestring dir) dir))
+		     (loop for i in (neurons-list (id rna))
+			do
+			  (UIOP:run-program (format nil "sh -c 'cd ~A; cat .tmp | sed \"s/ ~S+/ ~S+/g; s/(~S+/(~S+/g; s/:DATA ~S)/:DATA (QUOTE ~S))/g\" > .foo; mv .foo .tmp'" (directory-namestring dir) (neuron>ind (id i)) (neuron<ind (id rna) (id i)) (neuron>ind (id i)) (neuron<ind (id rna) (id i)) (neuron>ind (id i)) (neuron<ind (id rna) (id i)))))
+		     (load (concatenate 'string (directory-namestring dir) ".tmp"))
+		     (format t "~45<TREE[~A] ...~;... loaded ...~>~%" (tff (string (caddr (split-path (string (nth (1- val) items)))))))
+		     (UIOP:run-program (format nil "sh -c 'cd ~A; rm .tmp'" (directory-namestring dir)))))
+		  (t (warn "This tree has been built from the neural network ~S. The latter should be loaded first ..." (read-from-string (caddr (reverse (split-path dir)))))))))))))
+      
 ;------------------------------------------------------------------
 ;                                                        DENDROGRAM
 

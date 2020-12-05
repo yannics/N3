@@ -92,11 +92,11 @@
 ;                                                 ACTIVATION (AREA)   
 
 (defmethod activation ((self area) &key seq)
-  (unless (loop for i in (soms-list self) always (and (not (null (fanaux-list (id i)))) (zerop (apply #'+ (input (id i))))))
+  (unless (loop for i in (soms-list self) always (and (fanaux-list (id i)) (zerop (apply #'+ (input (id i))))))
     (loop for i in (soms-list self) do (learn (id i) :seq seq))
     (setf (current-clique self)
 	  (loop for s in (soms-list self) collect
-	       (car (mct (id s)))))))
+	       (car (last (mct (id s))))))))
 
 ;------------------------------------------------------------------
 ;                                                   LEARNING (AREA)  
@@ -109,8 +109,8 @@
   (:method ((self mlt) (data list) &key scale) (when (loop for i in data always (= (nbre-input self) (length i))) (if scale (scaling data :mlt self) data)))
   (:method ((self mlt) (file string) &key scale) (read-data self (read-file file) :scale scale))
   (:method ((self mlt) (file pathname) &key scale) (read-data self (read-file (namestring file)) :scale scale))
-  (:method ((self mlt) (data null) &key scale) (declare (ignore self data scale)) nil)
-  (:method ((self mlt) (data t) &key scale) (declare (ignore self data scale)) nil)
+  (:method ((self mlt) (data null) &key scale) (declare (ignore self data scale)))
+  (:method ((self mlt) (data t) &key scale) (declare (ignore self data scale)))
   (:method ((self area) (data list) &key scale)
     (let ((seq (remove nil (loop for s in (soms-list self) for f in data collect (read-data (id s) f :scale scale)))))
       (when (and (= (length (soms-list self)) (length seq)) (loop for i in (cdr seq) always (= (length (car seq)) (length i)))) seq))))
@@ -121,23 +121,23 @@
 	 (cliq (remove (nth pos l) (copy-list l) :test #'equalp))	 
 	 (node (nth pos l)))
     (loop for i in cliq 
-	 do
-	 (update-ht (arcs self) (list node i) (sensorial-rate self)))))
+       do
+	 (when (and i node)
+	   (update-ht (arcs self) (list i node) (sensorial-rate self))
+	   (update-ht (arcs self) (list node i) (sensorial-rate self))))))
 
 (defmethod learn ((self area) &key seq)
   (if seq
-      (let ((data (when seq (read-data self seq :scale t))))
-	(if data
-	    (progn
-	      (set-all-zeros self :mode :onset)
-	      (loop
-		 for i from 0 to (1- (length (car data))) do
-		   (loop
-		      for s in (soms-list self)
-		      for d in data do
-			(setf (input (id s)) (nth i d))) (learn self))
-	      (set-all-zeros self :mode :fine))
-	    (warn "The argument of the key :seq is not a valid list.")))
+      (progn
+	(set-all-zeros self :mode :onset)
+	(loop
+	   for i from 0 to (1- (length (car seq))) do
+	     (loop
+		for s in (soms-list self)
+		for d in seq do
+		  (setf (input (id s)) (nth i d)))
+	     (learn self))
+	(set-all-zeros self :mode :fine))
       (when (activation self :seq t)
 	(dotimes (n (length (soms-list self))) (add-edge self (current-clique self) n)))))
     
@@ -170,10 +170,6 @@ In others word, clique = (index_fanal_SOM1 index_fanal_SOM2 ...)."
     (push r1 r2)
     r2))
 
-(defun count-item-in-list (lst &optional r)
-  (dolist (e (remove-duplicates lst :test #'equalp) r)
-    (push (list (count e lst :test #'equalp) e) r)))
-
 (defun ordered-combinatorial-distribution (lst)
   (if (> (length lst) 1)
       (let ((l (loop for i in lst collect (if (listp i) i (list i)))))
@@ -204,14 +200,13 @@ In others word, clique = (index_fanal_SOM1 index_fanal_SOM2 ...)."
       (and (= (length (soms-list self)) (length clique)) (loop for c in clique for i from 0 always (or (eq '? c) (and (integerp c) (>= c 0) (< c (nth i (fanaux-length self)))))) (not (loop for i in clique always (eq '? i))))))
 
 (defmethod locate-clique ((self area) (nodes list) &key (test #'mean))
-  ;; any malformed nodes list will be interpreted as NIL and will return all possible cliques of self.
-  (let* ((el (if (listp (car nodes)) (when (test-clique self nodes :as-nodes t) nodes) (when (test-clique self nodes) (loop for i in nodes for s from 0 when (integerp i) collect (list i s)))))
+  (let* ((el (if (listp (car nodes)) (when (test-clique self nodes :as-nodes t) nodes) (when (test-clique self nodes) (loop for i in nodes for s from 0 when (integerp i) collect (list i s)))))	 
 	 (nht (arcs self))
 	 (ed (if (null el)
 		 (ht nht :k)
 		 (loop for i in el collect (loop for key being the hash-keys of nht when (equalp i (car key)) collect key))))
-	 (cil (count-item-in-list (flat-once (flat-once (if (null el) (list ed) ed)))))
-	 (ped (loop for i in cil when (and (not (member (cadr i) el :test #'equalp)) (>= (car i) (length el))) collect (cadr i)))
+	 (cil (history (flat-once (flat-once (if (null el) (list ed) ed)))))
+	 (ped (loop for i in cil when (and (not (member (car i) el :test #'equalp)) (>= (cadr i) (length el))) collect (car i)))
 	 (eds (loop for i in ped when (= 1 (count (cadr i) ped :key #'cadr)) collect i))
 	 (edp (loop for i in ped unless (= 1 (count (cadr i) ped :key #'cadr)) collect i))
 	 (r (if edp
@@ -231,30 +226,40 @@ In others word, clique = (index_fanal_SOM1 index_fanal_SOM2 ...)."
 	  (dispatch-combination seqs (nth 0 seqs) 1 (reccomb (car seqs) (list (nth 1 seqs)))))))
 
 (defun trns-prob (clique al)
-  (reduce #'* (mapcar #'cadr (loop for i in clique for j in al when j collect (assoc i (mapcar #'reverse j))))))
+  (reduce #'* (mapcar #'cadr (loop for i in clique for j in al collect (let ((as (assoc i (mapcar #'reverse j)))) (if as as '(0.0 0.0)))))))
 
-(defun mat-trans (lst)
-  (apply #'mapcar #'list lst))
-
-(defmethod next-event-probability ((head list) (self area) &key (result :eval) remanence (compute #'rnd-weighted))
-  (let ((al (loop for i in (mat-trans head) for net in (soms-list self) collect (next-event-probability i (id net) :remanence remanence :result :prob))) 
-	r) 
-    (loop for c in (dispatch-combination (mapcar #'list! (loop for l in al collect (if (null l) '? (mapcar #'cadr l))))) when (test-clique self c) do (setf r (append (mapcar #'cadr (locate-clique self c)) r)))
-    (let* ((tmp (group-list (mat-trans (list (get-weight self r) r)) self))
-	   (rwi (mapcar #'cons (loop for i in tmp collect (trns-prob (car i) al)) (mapcar #'reverse tmp)))
-	   (orwi (ordinate rwi #'> :key #'car))) 
+(defmethod next-event-probability ((head list) (self area) &key (result :eval) remanence (compute #'rnd-weighted) opt)
+  (if (and (eq opt :buffer) (singleton head))
       (case result
-	(:prob (if remanence orwi rwi))
-	(:verbose (loop for i in (if remanence orwi rwi) do
-		       (format t "~@<~S => ~3I~_R:~,6f % - ~,6f %~:>~%" (caddr i) (* 1.0 (car i)) (* 1.0 (cadr i)))))
-	(:eval (let* ((res (funcall compute (if remanence (mapcar #'reverse (mapcar #'list (mapcar #'car orwi) (mapcar #'caddr orwi))) tmp)))
-			 (vals (assoc res (mapcar #'reverse rwi) :test #'equalp)))
-		    (when res (values
-			       res
-			       (caddr vals)
-			       (cadr vals)))))))))
-
-(defmethod next-event-probability ((head null) (self area) &key result remanence compute)
-  (declare (ignore head self result remanence compute)))
-
+	(:prob (locate-clique self (car head)))
+	(:eval (funcall compute (mapcar #'reverse (locate-clique self (car head))))))
+      (let* ((al (cond
+		   ((eq :onset opt) head)
+		   (t (loop for i in (mat-trans (if (eq :buffer opt) (butlast head) head)) for net in (soms-list self) collect (next-event-probability (unless (loop for qm in i always (eq '? qm)) i) (id net) :remanence remanence :result :prob :compute compute))))) ;; collect prob MLT 
+	     (r (when (loop for it in al never (null it))
+		  (if (eq :buffer opt)
+		      (loop for cli in (loop for c in (dispatch-combination (loop for l in al collect (mapcar #'cadr l))) append (mapcar #'cadr (locate-clique self c))) when (loop for a in cli for b in (car (last head)) always (or (eq a b) (eq b '?))) collect cli)
+		      (loop for c in (dispatch-combination (loop for l in al collect (mapcar #'cadr l))) append (mapcar #'cadr (locate-clique self c)))))) ;; collect possible clique from al result
+	     (prob-cli (group-list (mat-trans (list (get-weight self r) r)) self)) ;; normalised prob weighted cliques
+	     (prob-trn (mapcar #'cons (normalize-sum (loop for i in prob-cli collect (trns-prob (car i) al))) (mapcar #'butlast prob-cli))) ;; normalised prob cliques as product of prob of tournois
+	     (prob-res (normalize-sum (loop for cli in prob-cli for trn in prob-trn collect (* (cadr cli) (car trn)))))
+	     (res (ordinate (loop for cli in prob-cli for trn in prob-trn for p in prob-res collect (list (car cli) p (car trn) (cadr cli))) '> :key #'cadr)))
+	(case result
+	  (:prob (mapcar #'reverse (loop for i in res collect (subseq i 0 2))))
+	  (:verbose (when res (format t ";; P = T x C; T = prob in time; C = prob clique.~%"))
+		    (loop for i in res do
+			 (format t "~S => P:~,6f % - T:~,6f % - C:~,6f %~%" (car i) (* 100.0 (cadr i)) (* 100.0 (caddr i)) (* 100.0 (cadddr i)))))
+	  (:eval (let* ((cli (funcall compute res))
+			(vals (assoc cli res :test #'equalp)))
+		   (when res (values
+			      cli                   ;; the clique itself
+			      (cadr vals)           ;; C x T
+			      (caddr vals)          ;; prob in time (T)
+			      (cadddr vals))))))))) ;; prob clique (C)
+  
+(defmethod next-event-probability ((head null) (self area) &key (result :eval) remanence (compute #'rnd-weighted) (opt :onset))
+  (declare (ignore head))
+  (case opt
+    (:onset (next-event-probability (mapcar #'(lambda (som onset) (loop for o in onset when (assoc o (mapcar #'reverse som)) collect (reverse (assoc o (mapcar #'reverse som))))) (mapcar #'(lambda (x) (next-event-probability nil (id x) :result :prob :remanence t)) (soms-list self)) (loop for i in (soms-list self) collect (remove-duplicates(mapcar #'car (mapcar #'reverse (ht (onset (id i)))))))) self :result result :remanence remanence :compute compute :opt opt))))
+  
 ;------------------------------------------------------------------

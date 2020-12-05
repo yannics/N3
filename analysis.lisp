@@ -29,7 +29,6 @@ If needed add newline with #\Space in the data set."
 ;;------------------------------------------------------------------
 ;; generate png with gnuplot from tree data  
 (defmethod gnuplot> ((datapath string) &key mlt (w 1200) (h 600) (scale 1) (fontsize 15) (gnuplot *gnuplot*))
-  (declare (ignore mlt))
   (let* ((data (read-file datapath))
 	 (dir (directory-namestring datapath))
 	 (dp (get-all-peak data))
@@ -45,7 +44,7 @@ If needed add newline with #\Space in the data set."
 		(format nil "unset xtics~&unset ytics~&unset border~&set multiplot~&set tmargin 2~&")
 		(format nil "plot \"~Ascaled-inertia\" using 1:2 title '' with lines~&" dir)
 		(format nil "set logscale y 10~&set bmargin 1~&set tmargin 6~&")
-		(format nil "plot \"~Adist-peaks\" using 1:2 title '' with impulses, '' using 1:2:(sprintf(\"%.0f [%.3f]\",$1,$2)) with labels rotate by 90 offset character 0,3 notitle" dir))))
+		(format nil "plot \"~Adist-peaks\" using 1:2 title '~A' with impulses, '' using 1:2:(sprintf(\"%.0f [%.3f]\",$1,$2)) with labels rotate by 90 offset character 0,3 notitle" dir (if (mlt-p mlt) (name mlt) (if mlt mlt ""))))))
       (write-file dat :name "gnuplot.pl" :path datapath)))
   (UIOP::run-program (format nil "sh -c '~S ~S'" gnuplot (concatenate 'string (directory-namestring datapath) "gnuplot.pl"))))
 
@@ -73,46 +72,6 @@ For now tree has to be the node root."
   (cond ((zerop int) (apply #'concatenate (cons 'string res)))
 	((zerop (cadr (multiple-value-list (floor int 26)))) (int2letter (1- (floor (/ int 26))) (push "Z" res)))
 	(t (int2letter (floor (/ int 26)) (push (write-to-string (nth (cadr (multiple-value-list (floor (1- int) 26))) *letters*)) res)))))
-
-(defparameter *htpa* (make-hash-table :test #'equalp))
-(defun mk-ht-out/alpha (lst)
-  (clrhash *htpa*)
-  (let ((sl (ordinate lst #'> :key #'length)))
-    (loop for cl in sl for x from 1
-       do
-	 (loop for pos in cl
-	    do 
-	      (setf (gethash pos *htpa*) (int2letter x))))))
-
-(defparameter *alht* (make-hash-table))
-(defun mk-alht (n)
-  ;; see with standard deviation or so .... or all values
-  (clrhash *alht*)
-  (let ((al (loop for i from 1 to n collect (let ((r nil)) (maphash (lambda (k v) (when (equalp v (int2letter i)) (push k r))) *htpa*) (mat-trans r)))))
-    (loop for htk from 1 to n do (setf (gethash (read-from-string (int2letter htk)) *alht*) (nth (1- htk) al)))))
-(defun getdat (sym)
-  (gethash sym *alht*))
-
-;;++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-(defparameter *alraw* (make-hash-table))
-(defun mk-alraw (as dat)
-  (clrhash *alraw*)
-  (loop for i in as for a from 0 do (setf (gethash i *alraw*) (cons (nth a dat) (gethash i *alraw*))))
-  (format t "  ~4T~a~18T~a~&" "min" "max")
-  (loop for dt in (mat-trans dat) for i from 0 do
-       (format t "~S:~4T~S~18T~S~&" i (reduce #'min dt)  (reduce #'max dt))))
-(defun getraw (sym)
-  (mat-trans (gethash sym *alraw*)))
-;;++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-
-(defgeneric alpha-seq (self tree n-class data))
-(defmethod alpha-seq ((self som) (tree node) (n-class integer) (data list))
-  (mk-ht-out/alpha (trim-tree self tree n-class))
-  (loop for i in data collect (read-from-string (gethash i *htpa*))))
-
-(defmethod alpha-seq :after ((self som) (tree node) (n-class integer) (data list))
-  (declare (ignore self tree data))
-  (mk-alht n-class))
 ;;------------------------------------------------------------------
 ;; expand/compress allow to manage original sequence and 'smoothed' sequence (i.e. local duplicates removed)
 (defgeneric expand (alphanum &key root))
@@ -155,14 +114,8 @@ For now tree has to be the node root."
 (defmethod compress ((a null) &optional r s)
   (nreverse (if s (cons (compress (car s) (length s)) r) r)))
 
-;;++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-(defun fission (symbol) (loop for i from 1 to (length (string symbol)) collect (read-from-string (subseq (string symbol) (1- i) i))))
-(defun fusion (list) (read-from-string (eval (append '(concatenate 'string) (loop for i in list collect (string i))))))
-;;++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-
 (defun rem-local-dup (lst)
   (expand (compress lst) :root t))
-;;(expand (compress (alpha-seq <som-name> <tree-name> <n-class>)) :root t)
 ;;------------------------------------------------------------------
 ;; structural grouping
 (defun list-module (a &optional one)
@@ -217,7 +170,7 @@ For now tree has to be the node root."
 
 (defparameter *ml* nil)
 (defun sorting (as)
-  (let* ((al (ordinate (count-item-in-list as) #'> :key #'car))
+  (let* ((al (ordinate (mapcar #'reverse (history as)) #'> :key #'car))
 	 (fal (caar al))
 	 (res (loop for i in al when (= (car i) fal) collect i)))
     (car (ordinate res '< :key #'(lambda (x) (length (string (cadr x))))))))	 
@@ -438,46 +391,48 @@ For now tree has to be the node root."
 (defvar +alist+ nil) 
 
 (defmethod gravity-center ((lst list) (ghost event)) ;; lst --> list of events
-  (setf (event-data ghost) (mapcar #'mean (mat-trans (loop for i in lst collect (event-data (id i)))))))
+  (let ((dat (loop for i in lst collect (event-data (id i)))))
+    (setf (event-data ghost) (if (loop for i in dat always (listp i)) (mapcar #'mean (mat-trans dat)) (mean dat)))))
 
-(defmethod dendrogram ((self list) (aggregation integer) &key (diss-fun #'structure-distance) newick with-label and-data)
+(defmethod dendrogram ((self list) (aggregation integer) &key (diss-fun #'structure-distance) newick with-label (and-data t))
   ;; self is a list of objects
   ;; key :diss-fun set a function applicable to the objects of self -- defind as a and b if lambda function (use macro lambda* to keep track -- see package.lisp)
   ;; key :newick to name the output file (string or symbol)
   ;; key :and-data to save tree (boolean) or an alist of symbol or string matching respectively the list self such as |self|=|and-data|
-  (setf
-   +alist+ (and (listp and-data) (= (length and-data) (length self))) 
-   +GA+ (make-event :label '+GA+)
-   +GB+ (make-event :label '+GB+)
-   *event* (format nil "~A~A-~A" *N3-BACKUP-DIRECTORY* aggregation (if newick (string newick) "structure"))
-   *tree* '())
-  (loop for e in self for i from 1 do (push (setf (symbol-value (intern (format nil "~S+" (read-from-string (int2letter i))))) (make-node :label (read-from-string (int2letter i)) :data (make-event :label (read-from-string (int2letter i)) :data e :type (cond (+alist+ 'alist) ((symbolp e) 'symbol) (t 'data)) :al (when +alist+ (string (nth (1- i) and-data)))))) *tree*))
-  (dendro *tree* aggregation diss-fun)
-  (setf (node-data (car *tree*)) (list (format nil "*EVENT*") aggregation
-				       (let ((mvl (multiple-value-list (function-lambda-expression diss-fun))))
+  (unless (and (= aggregation 3) (symbolp (car self)))
+    (setf
+     +alist+ (cond ((loop for i in self always (numberp i)) (mapcar #'write-to-string self))
+		   ((and (listp and-data) (= (length and-data) (length self))) (mapcar #'string self)))
+     +GA+ (make-event :label '+GA+ :type (when (symbolp (car self)) 'symbol))
+     +GB+ (make-event :label '+GB+ :type (when (symbolp (car self)) 'symbol))
+     *event* (format nil "~A~A/~A-~A" *N3-BACKUP-DIRECTORY* "structure" aggregation (if newick (string newick) "untitled"))
+     *tree* '())
+    (loop for e in self for i from 27 do (push (setf (symbol-value (intern (format nil "~S+" (read-from-string (int2letter i))))) (make-node :label (read-from-string (int2letter i)) :data (make-event :label (read-from-string (int2letter i)) :data e :type (cond (+alist+ 'alist) ((symbolp e) 'symbol) (t 'data)) :al (if +alist+ (nth (- i 27) +alist+) (int2letter i))))) *tree*))
+    (dendro *tree* aggregation diss-fun)
+    (setf (node-data (car *tree*)) (list (format nil "*EVENT*") aggregation
+					 (let ((mvl (multiple-value-list (function-lambda-expression diss-fun))))
 					 (cond
-					   ((listp (car (last mvl))) diss-fun)				
-					   (t (read-from-string (format nil "#'~S" (car (last mvl)))))))
-				       (format nil "~S~S" aggregation (car *tree*))))
-  (when and-data (save (car *tree*)))
-  
-  (with-open-file (stream (make-pathname :directory (pathname-directory *N3-BACKUP-DIRECTORY*)
+					   ((listp (car (last mvl))) (format nil "~S" (if (ml? diss-fun) (source-of diss-fun) diss-fun)))				
+					   (t (format nil "~S" (car (last mvl))))))
+					 (format nil "~S~S" aggregation (car *tree*))))
+    (when and-data (save (car *tree*)))
+    
+    (with-open-file (stream (make-pathname :directory (pathname-directory *N3-BACKUP-DIRECTORY*)
 					   :name ".tmp"
 					   :type "nw")
 			    :direction :output
 			    :if-exists :supersede
 			    :if-does-not-exist :create)
-    (SETF (READTABLE-CASE *READTABLE*) :PRESERVE) ;; hack to preserve case in string alist
-    (format stream "~S" (list (tree>nw (car *tree*) :with-label with-label)))
-    (SETF (READTABLE-CASE *READTABLE*) :UPCASE)) ;; retrieve previous state
-  (UIOP::run-program (format nil "sh -c '~S ~S ~S'" (format nil "~Abin/raw2nw" *NEUROMUSE3-DIRECTORY*) (format nil "~A.tmp.nw" *N3-BACKUP-DIRECTORY*) (concatenate 'string *event* ".nw")))
-  (setf
-   *event* nil
-   *tree* (car *tree*)))
+      (SETF (READTABLE-CASE *READTABLE*) :PRESERVE) ;; hack to preserve case in string alist
+      (format stream "~S" (list (tree>nw (car *tree*) :with-label with-label)))
+      (SETF (READTABLE-CASE *READTABLE*) :UPCASE)) ;; retrieve previous state
+    (UIOP::run-program (format nil "sh -c '~S ~S ~S'" (format nil "~Abin/raw2nw" *NEUROMUSE3-DIRECTORY*) (format nil "~A.tmp.nw" *N3-BACKUP-DIRECTORY*) (concatenate 'string *event* ".nw")))
+    (setf
+     *event* nil
+     *tree* (car *tree*))))
 ;;------------------------------------------------------------------
 ;;(dendrogram '(EEEB BEEC CBEAEB BAEC CBEBDD DDDADADDA CBEBDADDDA DADDB BCBEBADBA BCED DDDABBBBD BCCBA EA BEAEC CBA CBBAECB BBADA BBABC CDA BEBBABC CEEA ABD BAA CCBA CBBAA CBC ADA BDDE CED) 1)
-;;(dendrogram '(EEEB BEEC CBEAEB BAEC CBEBDD DDDADADDA CBEBDADDDA DADDB BCBEBADBA BCED DDDABBBBD BCCBA EA BEAEC CBA CBBAECB BBADA BBABC CDA BEBBABC CEEA ABD BAA CCBA CBBAA CBC ADA BDDE CED) 2 :diss-fun #'(lambda (a b) (structure-distance a b :root t)) :newick "root" :and-data t)
-
+;;(dendrogram '(EEEB BEEC CBEAEB BAEC CBEBDD DDDADADDA CBEBDADDDA DADDB BCBEBADBA BCED DDDABBBBD BCCBA EA BEAEC CBA CBBAECB BBADA BBABC CDA BEBBABC CEEA ABD BAA CCBA CBBAA CBC ADA BDDE CED) 2 :diss-fun (lambda* (a b) (structure-distance a b :root t)) :newick "root" :and-data t)
 
 ;;==================================================================
 ;;           SYSTEMIC ANALYSIS Derivative clustering
@@ -526,7 +481,7 @@ which lengths are successive values of the list <segmentation>.
 	      (format nil "set terminal png size ~S,~S font \"Courier, ~S\"" (round (* scale w)) (round (* scale h)) fontsize)
 	      (format nil "set output '~Aderivative.png'" *N3-BACKUP-DIRECTORY*)
 	      (format nil "unset xtics~&unset ytics~&unset border~&set datafile separator \" \"~&set yrange [0:]~&set bmargin 0~&set tmargin 10~&f(x)=~S" (mean-diss lst))    
-	      (format nil "plot f(x) title '' with lines, \"~Aderivative.dat\" using 1:2:3 title '' with labels rotate by 90 left offset character 0,0 font \"monospace,~S\"" *N3-BACKUP-DIRECTORY* fontsize))))
+	      (format nil "plot f(x) title '~A' with lines, \"~Aderivative.dat\" using 1:2:3 title '' with labels rotate by 90 left offset character 0,0 font \"monospace,~S\"" (if (mlt-p mlt) (name mlt) (if mlt mlt "")) *N3-BACKUP-DIRECTORY* fontsize))))
     (write-file dat :name "derivative.pl" :path *N3-BACKUP-DIRECTORY*))
   (UIOP::run-program (format nil "sh -c '~S ~S'" gnuplot (concatenate 'string *N3-BACKUP-DIRECTORY* "derivative.pl"))))
 
@@ -548,7 +503,7 @@ which lengths are successive values of the list <segmentation>.
     (push tmp r)
     (loop for i in (reverse r) collect (reverse (mapcar #'cadr i)))))
 ;;------------------------------------------------------------------
-;;(cadar (ordinate (count-item-in-list (flat-once (loop for i in '(EEEB BEEC CBEAEB BAEC CBEBDD DDDADADDA CBEBDADDDA DADDB BCBEBADBA BCED DDDABBBBD BCCBA EA BEAEC CBA CBBAECB BBADA BBABC CDA BEBBABC CEEA ABD BAA CCBA CBBAA CBC ADA BDDE CED) collect (serial-pair (string i))))) '> :key 'car))
+;;(cadar (ordinate (mapcar #'reverse (history (flat-once (loop for i in '(EEEB BEEC CBEAEB BAEC CBEBDD DDDADADDA CBEBDADDDA DADDB BCBEBADBA BCED DDDABBBBD BCCBA EA BEAEC CBA CBBAECB BBADA BBABC CDA BEBBABC CEEA ABD BAA CCBA CBBAA CBC ADA BDDE CED) collect (serial-pair (string i)))))) '> :key 'car))
 
 ;;==================================================================
 ;;             SYSTEMIC ANALYSIS Developmental process
@@ -558,16 +513,27 @@ which lengths are successive values of the list <segmentation>.
       (loop for i in lw when (equalp (butlast i) head) collect i)
       lw))
 
-(defmethod next-event-probability ((head list) (seq list) &key (result :verbose) remanence (compute #'rnd-weighted))
-  (declare (ignore remanence))
+(defmethod next-event-probability ((head list) (seq list) &key (result :verbose) remanence (compute #'rnd-weighted) opt)
+  (declare (ignore remanence opt))
   (let* ((lw (get-match head (loop-wind seq (1+ (length head)))))
-	 (rh (count-item-in-list (mapcar #'car (mapcar #'last (remove-duplicates lw :test #'equalp)))))
-	 (ord (ordinate (mapcar #'list (mapcar #'car rh) (normalize-sum (mapcar #'cadr rh))) #'> :key #'cadr)))
+	 (rh (history lw))
+	 (ord (ordinate (mapcar #'list (mapcar #'car rh) (normalize-sum (mapcar #'cadr rh))) #'> :key #'car)))
     (case result
       (:prob (mapcar #'reverse ord))
       (:verbose (loop for i in ord do
-		     (format t "~@<~S => ~3I~_~,6f %~:>~%" (car i) (* 100 (float (cadr i))))))
-      (:eval (if lw
-		    (values (funcall compute ord) (length rh))
-		    (values nil 0))))))
+		     (format t "~@<~S => ~3I~_~,6f %~:>~%" (if (singleton (car i)) (caar i) (car i)) (* 100 (float (cadr i))))))
+      (:eval (when lw
+	       (multiple-value-bind (a b) (funcall compute ord)
+		 (values
+		  (if (singleton a) (car a) a) ;; the result itself 
+		  ;(length rh)                 ;; number of potential candidat
+		  b)))))))                     ;; probability of the selected candidat
+
 ;;------------------------------------------------------------------
+
+;;++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+(make-instance 'neuron :name 'neuron)
+(make-instance 'neuron :name 'ghost)
+(defconstant MLT (make-instance 'mlt))
+(format t "; MLT default functions:~&; DISTANCE-IN: ~S~&; DISTANCE-OUT: ~S~&; VOISINAGE: ~S~&; CARTE: ~S~&" (DISTANCE-IN MLT) (DISTANCE-OUT MLT) (VOISINAGE MLT) (CARTE MLT))
+;;++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++

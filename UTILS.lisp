@@ -39,27 +39,29 @@
 (defgeneric the-ds (self) (:method ((self mlt)) (cdar (ordinate (loop for i in (ht (date-report self) :al) when (ds-p (cdr i)) collect i) '> :key #'car))))
 (defun addtothird (n lst) (cond ((= 2 (length lst)) (reverse (cons (if n n 0) (reverse lst)))) ((= 3 (length lst)) (reverse (cons (if n n 0) (reverse (butlast lst))))) (t nil)))
 
-(defgeneric update-data-scale (self &rest ds)
-  (:documentation "DS [as key + data-scale value] {default-value}
+(defgeneric set-ds (self &rest ds)
+  (:documentation "DS [as key + value] {default-value} 
 +-----------------------------------------------------------------------+
 |    :norm (min max curve{0}) or curve                                  |
 | OR :dim ((min[1] max[1] curve[1]{0}) ... (min[n] max[n] curve[n]{0})) |               
 +-----------------------------------------------------------------------+
-| OR :bypass [as identity set by default]                               |
+Note that the output is clipped if the range of input is largest than values of :norm or :dim
 +-----------------------------------------------------------------------+
-Note that the output is clipped if the range of input is largest than values of :norm or :dim")
+|    :bypass [as identity set by default]                               | 
+| OR :bypass (lambda* (x) ...)                                          |
++-----------------------------------------------------------------------+")
   (:method ((self mlt) &rest ds)
     ;; test ds
-    (if (or (and (eq :bypass (car ds)) (or (eq (cadr ds) 't) (null (cadr ds))))
+    (if (or (and (eq :bypass (car ds)) (or (null (cadr ds)) (ml? (cadr ds))))
 	    (and (eq :norm (car ds)) (listp (cadr ds)) (or (= 2 (length (cadr ds))) (= 3 (length (cadr ds)))) (loop for n in (cadr ds) always (numberp n)) (null (caddr ds)))
 	    (and (eq :dim (car ds)) (listp (cadr ds)) (loop for x in (cadr ds) always (and (listp x) (or (= 2 (length x)) (= 3 (length x))) (loop for y in x always (numberp y)))) (null (caddr ds))))
 	;; add DS to history of self
 	(if (equalp (dt (the-ds self)) ds)
-	    (warn "Nothing to update! ...")
+	    (the-ds self)
 	    (let ((ct (get-universal-time)))
 	      (setf (gethash ct (date-report self)) (make-instance 'ds :dt ds))
 	      (the-ds self)))
-    (warn "Nothing to update! Check your DS entry..."))))
+    (warn "Wrong argument(s)! Check your DS entry..."))))
 
 (defgeneric zero-a (x &optional quasi-zero)
  (:documentation "Replace all quasi-zero by zero.")
@@ -69,23 +71,37 @@ Note that the output is clipped if the range of input is largest than values of 
 
 (defgeneric scaling (data &key minin maxin minout maxout curve mlt norm dim bypass update))
 (defmethod scaling ((data number) &key minin maxin minout maxout curve mlt norm dim bypass update)
-  (declare (ignore mlt norm dim bypass update))
-  (if (and minin maxin minout maxout curve)
-      (if (> (abs curve) 0.001)
-	  (let* ((grow (exp curve))
-		 (a (/ (- maxin minin) (- 1 grow)))
-		 (b (+ minin a)))
-	    (zero-a (+ minout (/ (* (log (/ (- b (cond ((> data maxin) maxin) ((< data minin) minin) (t data))) a)) (- maxout minout)) curve))))
-	  (zero-a (+ minout (/ (* (- (cond ((> data maxin) maxin) ((< data minin) minin) (t data)) minin) (- maxout minout)) (- maxin minin)))))
-      data))
+  (declare (ignore norm dim))
+  (if (mlt-p (id mlt))
+      (cond ((and bypass (ml? bypass)) (when update (apply #'set-ds (cons (id mlt) (list :bypass bypass)))) (funcall bypass data))
+	    ((ml? (cadr (list! (dt (the-ds (id mlt)))))) (funcall (cadr (dt (the-ds (id mlt)))) data))
+	    (t data))      
+      (if (and minin maxin minout maxout curve)
+	  (if (> (abs curve) 0.001)
+	      (let* ((grow (exp curve))
+		     (a (/ (- maxin minin) (- 1 grow)))
+		     (b (+ minin a)))
+		(zero-a (+ minout (/ (* (log (/ (- b (cond ((> data maxin) maxin) ((< data minin) minin) (t data))) a)) (- maxout minout)) curve))))
+	      (zero-a (+ minout (/ (* (- (cond ((> data maxin) maxin) ((< data minin) minin) (t data)) minin) (- maxout minout)) (- maxin minin)))))
+	  data)))
+
+(defmethod scaling ((data null) &key minin maxin minout maxout curve mlt norm dim bypass update)
+  (declare (ignore data minin maxin minout maxout curve norm dim bypass update))
+  (if (mlt-p (id mlt)) (make-list (nbre-input (id mlt)) :initial-element 0) 0))
 
 (defmethod scaling ((data list) &key minin maxin minout maxout curve mlt norm dim bypass update)
   (if (mlt-p (id mlt))
       ;;-------------------------------
       (let (ddts)
-	(cond (bypass
+	(cond ((ml? bypass)
+	       (when *debug* (format t ":bypass & lambda*"))
+	       (setf ddts (list :bypass bypass)))
+	      (bypass
 	       (when *debug* (format t ":bypass"))
 	       (setf ddts (list :bypass)))
+	      ((and (not norm) (not dim) (not bypass))
+	       (when *debug* (format t ":bypass [default]"))
+	       (setf ddts (list! (dt (the-ds (id mlt))))))
 	      ;;-------------------------------
 	      ;; list (minval maximal {curve}) —> if curve unset then 0 
 	      ((and (listp norm) (not (null norm)) (or (= 2 (length norm)) (= 3 (length norm))) (loop for n in norm always (numberp n)))
@@ -131,9 +147,9 @@ Note that the output is clipped if the range of input is largest than values of 
 	       (when *debug* (format t ":DS"))
 	       (setf ddts (list! (dt (the-ds (id mlt)))))))
 	;;-------------------------------
-	(when update (apply #'update-data-scale (cons (id mlt) ddts)))
+	(when update (apply #'set-ds (cons (id mlt) ddts)))
 	(case (car ddts)
-	  (:bypass data)
+	  (:bypass (if (ml? (cadr ddts)) (funcall (cadr ddts) data) data))
 	  (:norm (mapcar #'(lambda (x) (scaling x :minin (car (cadr ddts)) :maxin (cadr (cadr ddts)) :minout 0 :maxout 1 :curve (caddr (cadr ddts)))) data))
 	  (:dim (mat-trans (loop for d in (mat-trans data) for s in (cadr ddts) collect (scaling d :minin (car s) :maxin (cadr s) :minout 0 :maxout 1 :curve (caddr s)))))))
       ;;-------------------------------
@@ -143,7 +159,9 @@ Note that the output is clipped if the range of input is largest than values of 
 
 (defgeneric mapping (self iteration dataset &key init-lr init-rad end-lr end-rad init-ep df ds))
 (defmethod mapping ((self som) (iteration integer) (dataset list) &key (init-lr 0.1) (init-rad (/ (funcall #'mean (list! (field self))) 2)) (end-lr 0.01) (end-rad 0.1) (init-ep (epoch self)) (df #'exp-decay) (ds (dt (the-ds self))))
-  (let ((data (apply #'scaling (cons dataset (append '(:mlt self) (list! ds) '(t)))))) 
+  (let ((data (if (ml? (eval (nth (1+ (position :bypass ds)) ds)))
+		  (loop for dat in dataset collect (eval (append (list 'funcall #'scaling dat :mlt self) (list! ds))))
+		  (apply #'scaling (cons dataset (append '(:mlt self) (list! ds)))))))  
     (dotimes (k iteration)
       (setf (input self)
 	    (nth (random (length data)) data)
@@ -231,8 +249,8 @@ nodes = ((2 ? ? 1) nil); that means (car nodes) = tournoi with wild cards for ev
 (defmethod >dot ((self area) (nodes-lst list))
   (let* ((el (remove-duplicates (ht (arcs self) :k) :test #'(lambda (a b) (equalp a (reverse b)))))
 	 (ed (loop for i in nodes-lst collect (loop for j in el when (or (equalp i (car j)) (equalp i (cadr j))) collect j)))
-	 (cil (count-item-in-list (flat-once (flat-once ed))))
-	 (ped (loop for i in cil when (and (not (member (cadr i) nodes-lst :test #'equalp)) (>= (car i) (length nodes-lst))) collect (cadr i)))
+	 (cil (history (flat-once (flat-once ed))))
+	 (ped (loop for i in cil when (and (not (member (car i) nodes-lst :test #'equalp)) (>= (cadr i) (length nodes-lst))) collect (car i)))
 	 (out (format nil "~A~S.dot" *N3-BACKUP-DIRECTORY* self))
 	 (scriptpath (format nil "~Abin/dot2img" *NEUROMUSE3-DIRECTORY*)))
     (with-open-file (out (make-pathname :directory (pathname-directory out)
@@ -355,12 +373,15 @@ Also, 'all-combinations' is a misnomer to refers in fact to an 'all-permutations
   (let ((nl lst))
     (loop for i in (list! sub) do (setf nl (remove i nl :test #'equalp))) nl))
 
-(defgeneric locate-cycle (nodes-lst &optional order res))
-(defmethod locate-cycle ((nodes-lst list) &optional order res)
+(defun standard-deviation (lst)
+  (sqrt (/ (apply #'+ (mapcar #'(lambda (x) (expt (- x (mean lst)) 2)) lst)) (length lst))))
+
+(defgeneric locate-cycle (nodes-lst &optional kw order res))
+(defmethod locate-cycle ((nodes-lst list) &optional kw order res)
   (if (< (length nodes-lst) 3)
       (ordinate res #'> :key #'length)
       (if (equalp (caar nodes-lst) (cadar nodes-lst))
-	  (locate-cycle (cdr nodes-lst) order res)
+	  (locate-cycle (cdr nodes-lst) kw order res)
 	  (let ((tmp (list (car nodes-lst))))
 	    (loop for i in (cdr nodes-lst)
 	       do
@@ -376,16 +397,39 @@ Also, 'all-combinations' is a misnomer to refers in fact to an 'all-permutations
 		     (= (length tmp) order)
 		     (> (length tmp) 2))
 		 (node= (car tmp) (car (last tmp)) :arcs 21))
-		(locate-cycle (rem-sublst tmp nodes-lst) order (cons (reverse tmp) res))
-		(locate-cycle (cdr nodes-lst) order res))))))
+		(locate-cycle (rem-sublst tmp nodes-lst) kw order (cons (reverse tmp) res))
+		(locate-cycle (cdr nodes-lst) kw order res))))))
 
-(defmethod locate-cycle ((nodes-lst hash-table) &optional order res)
-  (locate-cycle (ht nodes-lst :k) order res))
+(defmethod locate-cycle ((nodes-lst hash-table) &optional kw order res)
+  (if (keywordp kw)
+      (let ((tmp (locate-cycle (ht nodes-lst :k) kw order res)))
+	(values
+	 tmp
+	 (case kw
+	   ;; list of weight's edges by cycle
+	   (:wlist (mapcar #'(lambda (cycle) (loop for i in cycle collect (cdr (assoc i (ht nodes-lst :al) :test #'equalp)))) tmp))
+	   ;; (ratio mean std-dev)
+	   ;; ratio is the sum of weight's edges by cycle
+	   ;; mean is the mean value of the normalized wlist -- real value is (* ratio mean)
+	   ;; std-dev is the standard deviation of the normalized wlist -- real value is (* ratio std-dev)
+	   (:wstats (let ((ns (mapcar #'(lambda (cycle) (loop for i in cycle collect (cdr (assoc i (ht nodes-lst :al) :test #'equalp)))) tmp)))
+		      (mat-trans (list (mapcar #'sum ns) (mapcar #'mean (mapcar #'normalize-sum ns)) (mapcar #'standard-deviation (mapcar #'normalize-sum ns))))))
+	   (otherwise (warn "Keyword not recognized!")))))
+      (locate-cycle (ht nodes-lst :k) kw order res)))
+
+(defmethod locate-cycle ((nodes-lst mlt) &optional kw order res)
+  (locate-cycle (arcs nodes-lst) kw order res))
+
+(defmethod locate-cycle ((nodes-lst area) &optional kw order res)
+  (locate-cycle (arcs nodes-lst) kw order res))
 
 ;;; ;;    ;  ; ;  ;;; ;  ;;  ;;; ;;    ;
 
 (defstruct (event (:print-function (lambda (p s k) (declare (ignore k)) (format s "~A" (event-label p))))) label data type al)
 (defmethod id ((self event)) self)
+
+(defmethod euclidean ((arg1 event) (arg2 event) &key modulo position weight)
+  (euclidean (event-data arg1) (event-data arg2) :modulo modulo :position position :weight weight))
 
 (defun x->dx (lst)
   (loop for x in lst
@@ -534,8 +578,5 @@ Note that each list of durations is scaled such as sum of durations is equal to 
     (dotimes (i (length a) (nreverse r))
       (loop for j from (1+ i) to (1- (length a)) do
 	   (push (list i j (differential-vector (nth i a) (nth j a) :result result :opt opt :thres thres :ended ended :tolerance tolerance :cluster cluster)) r)))))
-
-(defmethod differential-vector ((a null) (b list) &key (result :diff-norm) (opt :mean) (thres 0.2) (ended :ignore) (tolerance :no) (cluster :median))
-  (differential-vector b a :result result :opt opt :thres thres :ended ended :tolerance tolerance :cluster cluster))
 
 ;------------------------------------------------------------------
