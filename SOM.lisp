@@ -56,9 +56,9 @@
   (format stream "~S" (name self) )
   (values))
 
-(defgeneric neuron-p (self))
-(defmethod neuron-p ((self neuron)) t)
-(defmethod neuron-p ((self t)) nil)
+(defgeneric neuron-p (self)
+  (:method ((self neuron)) t)
+  (:method ((self t)) nil))
 
 (defmethod id ((self neuron)) self)
 
@@ -134,9 +134,10 @@
   (format stream "~S" (name self))
   (values))
 
-(defgeneric som-p (self))
-(defmethod som-p ((self som)) t)
-(defmethod som-p ((self t)) nil)
+(defgeneric som-p (self)
+  (:method ((self som)) t)
+  (:method ((self t)) nil))
+
 (defmethod id ((self som)) self)
 
 (defgeneric is-winner-ghost (self)

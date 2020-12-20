@@ -8,7 +8,7 @@
     :licence "Copyleft 2013/2020 - all wrongs reserved"
     :maintainer "<by.cmsc@gmail.com>"
     :description "Neuromuse3 - <https://www.overleaf.com/read/wswcpgqntjrc>"
-    :version "3.0.12"
+    :version "3.0.13"
     :components ((:file "package")
       		  (:file "SOM")
 		  (:file "MLT")
@@ -18,4 +18,5 @@
 		  (:file "UDP")		
                  (:file "UTILS")
 		  (:file "CAH")
-		  (:file "analysis")))
+		  (:file "analysis")
+		  (:file "sequencing")))

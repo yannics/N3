@@ -25,11 +25,13 @@
    (arcs
     :initform (make-hash-table :test #'equalp) :initarg :arcs :accessor arcs)
    (mem-cache
-    :initform nil :initarg :mem-cache :accessor mem-cache)))
+    :initform nil :initarg :mem-cache :accessor mem-cache)
+   ))
 
-(defgeneric mlt-p (self))
-(defmethod mlt-p ((self mlt)) t)
-(defmethod mlt-p ((self t)) nil)
+(defgeneric mlt-p (self)
+  (:method ((self mlt)) t)
+  (:method ((self t)) nil))
+
 (defmethod id ((self mlt)) self)
 
 ;------------------------------------------------------------------
@@ -195,12 +197,12 @@ nil = check if e1 and e2 are in common one node;
   (setf (gethash (1+ (get-universal-time)) (date-report self)) (make-instance 'ds :dt :bypass))
   (values self))
 
-(defvar *available-som* '())
+(defvar *all-som* '())
  
 (defun create-mlt (name n-input n-neurons &key carte topology field n-fanaux)
-  (push (init-som (make-instance 'mlt :name name) n-input n-neurons :carte carte :topology topology :field field) *available-som*)
+  (push (init-som (make-instance 'mlt :name name) n-input n-neurons :carte carte :topology topology :field field) *all-som*)
   (eval (list 'defvar name '(symbol-value name)))
-  (let ((mlt (car *available-som*)))
+  (let ((mlt (car *all-som*)))
     (setf (input mlt) (make-list n-input :initial-element 0)
 	  (neuron-gagnant mlt) (winner mlt))
     (when n-fanaux (update-fanaux mlt n-fanaux))
@@ -373,7 +375,7 @@ The key :test manages the weights as a mean value by default."))
     (let ((res (if remanence
 		   (if (> (length tournoi) (cover-value self))
 		       (let ((al (loop for i in (loop-wind tournoi (cover-value self)) collect (when (test-trn self i) (chain-match self i)))))
-			 (if (member nil al)
+			 (if (or (member nil al) (not (search-space-in self tournoi)))
 			     nil
 			     (let ((tmp (loop for i in (car al) append (remove nil (loop for j in (reccomb (list (list i)) (cdr al)) collect (merge-lw j))))))
 			       (loop for r in (mapcar #'list (mapcar #'(lambda (x) (reduce #'+ (get-weight self (loop-wind x (cover-value self)) :remanence remanence :test test))) tmp) tmp) collect r))))

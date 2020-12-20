@@ -1,8 +1,8 @@
 (defpackage :N3
   (:use :cl)
   (:export :*N3-BACKUP-DIRECTORY* 
-	   :*AVAILABLE-SOM*
-	   :*AVAILABLE-AREA*
+	   :*ALL-SOM*
+	   :*ALL-AREA*
 	   :CREATE-MLT
 	   :CREATE-AREA
 	   :LOCATE-CLIQUE
@@ -76,7 +76,9 @@
 	(ml `(lambda* ,args ,@body)))
     `(make-fn-with-code ,code ',code ',ml)))
 
-(defgeneric ml! (o) (:method ((o fn-with-code)) (save-as o)))
+(defgeneric ml! (o)
+  (:method ((o fn-with-code)) (save-as o))
+  (:method ((o t)) (declare (ignore o)) nil))
 (defgeneric ml? (o)
   (:method ((o fn-with-code)) (declare (ignore o)) t)
   (:method ((o t)) (declare (ignore o)) nil))

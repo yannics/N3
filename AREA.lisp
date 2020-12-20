@@ -41,10 +41,9 @@
   (format stream "~S" (name self) )
   (values))
 
-(defgeneric area-p (self))
-
-(defmethod area-p ((self area)) t)
-(defmethod area-p ((self t)) nil)
+(defgeneric area-p (self)
+  (:method ((self area)) t)
+  (:method ((self t)) nil))
 
 (defmethod id ((self area)) self)
 
@@ -76,7 +75,7 @@
        do (setf (net (id i)) self))
     self))
 
-(defvar *available-area* '())
+(defvar *all-area* '())
 
 (defun soms-list-p (lst) 
   (ignore-errors (loop for i in lst always (mlt-p (id i)))))
@@ -84,9 +83,9 @@
 (defun create-area (name soms-list)
   (if (soms-list-p soms-list)
       (progn
-	(push (init-area (make-instance 'area :name name) soms-list) *available-area*)
-	(eval (list 'defvar (read-from-string (format nil "~S" (car *available-area*))) (car *available-area*))))
-      (warn "To create AREA, every item of the soms-list has to be a MLT. Please check *available-som*.")))
+	(push (init-area (make-instance 'area :name name) soms-list) *all-area*)
+	(eval (list 'defvar (read-from-string (format nil "~S" (car *all-area*))) (car *all-area*))))
+      (warn "To create AREA, every item of the soms-list has to be a MLT. Please check *all-som*.")))
 
 ;------------------------------------------------------------------
 ;                                                 ACTIVATION (AREA)   

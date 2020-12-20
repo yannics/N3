@@ -531,9 +531,3 @@ which lengths are successive values of the list <segmentation>.
 
 ;;------------------------------------------------------------------
 
-;;++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-(make-instance 'neuron :name 'neuron)
-(make-instance 'neuron :name 'ghost)
-(defconstant MLT (make-instance 'mlt))
-(format t "; MLT default functions:~&; DISTANCE-IN: ~S~&; DISTANCE-OUT: ~S~&; VOISINAGE: ~S~&; CARTE: ~S~&" (DISTANCE-IN MLT) (DISTANCE-OUT MLT) (VOISINAGE MLT) (CARTE MLT))
-;;++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
