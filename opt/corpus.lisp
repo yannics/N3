@@ -31,7 +31,7 @@ Each element is itself a list, with the format (o p d v) where o is the onset ti
 
 (defun map-opnd (file)
   (let* ((opnd (caar (read-file file)))
-	 (voice (reduce #'max (mapcar #'cadddr opnd)))
+	 (voice (reduce #'max (substitute 1 nil (mapcar #'cadddr opnd))))
 	 (lst (loop for nv from 1 to voice collect (loop for i in opnd when (= (car (last i)) nv) collect i))))
 
     (loop for score in lst collect 
@@ -45,7 +45,7 @@ Each element is itself a list, with the format (o p d v) where o is the onset ti
 	   ;; (loop for ev in (reverse r) for i from 1 collect (list (cadr ev) (mapcar #'mod12 (caddr ev)) (>int (caddr ev) (caddr (nth i (reverse r))))))
 	   (loop for ev in (reverse r) for i from 1 collect (list (cadr ev) (car (mapcar #'mod12 (caddr ev))) (car (>int (caddr ev) (caddr (nth i (reverse r))))))))))) 
 	   
-;; (defparameter +corpus+ (flat-once (mapcar #'map-opnd (directory "~/opnd-files/*b-mel.opnd"))))
+;; (Defparameter +corpus+ (flat-once (mapcar #'map-opnd (directory "~/opnd-files/*-mel.opnd"))))
 
 ;------------------------------------------------------------------
 
