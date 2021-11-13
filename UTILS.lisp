@@ -34,6 +34,39 @@
 
 (defun version () (format t "~a" (asdf:component-version (asdf:find-system "n3"))))
 
+(defun convert-list-to-array (lst)
+  (with-output-to-string (stream)
+    (uiop:run-program (concatenate 'string "echo '" (format nil "~a" lst) "' | sed -e 's/\\ /, /g;s/(/[ /g;s/)/ ]/g' | awk '{print tolower(\$0)}'") :output stream)))
+
+(defun >thrifty-code (a digit &optional (key :left) (from 0)) ;; possible key are -> :left (default), :right, :mid (implies an odd digit number)
+  (case key
+    (:right (reverse (replace-a 1 (- a from) (make-list digit :initial-element 0))))
+    (:left (replace-a 1 (- a from) (make-list digit :initial-element 0)))
+    ;; in the case of :mid, the value of from=0 -> clip the exceeding values and from=1 (default) -> apply modulo +/-(floor (/ digit 2))
+    (:mid (when (oddp digit) (replace-a 1 (+ (cond
+					       ((and (zerop from) (> a (floor (/ digit 2)))) (floor (/ digit 2)))
+					       ((and (zerop from) (< a (* -1 (floor (/ digit 2))))) (* -1 (floor (/ digit 2))))
+					       ((and (= 1 from) (> a (floor (/ digit 2)))) (mod a (floor (/ digit 2))))
+					       ((and (= 1 from) (< a (* -1 (floor (/ digit 2))))) (mod a (* -1 (floor (/ digit 2)))))
+					       (t a)) (floor (/ digit 2))) (make-list digit :initial-element 0))))))
+
+(defun winner-take-all (lst &optional (ind 0) tmp) ;; the result is the position of the 'winner' in lst
+  (let ((wta (loop for x in (if tmp tmp lst) for i from 0 when (= x (reduce #'max (if tmp tmp lst))) collect i))) 
+       (if (singleton wta)
+	   (car wta)
+	   (if (< ind (length lst))
+	       (winner-take-all
+		lst
+		(1+ ind)
+		(loop for x in (butlast (loop for i from 0 to (length lst) collect (subseq lst (if (< (- i ind) 0) 0 (- i ind)) (if (> (+ ind i 1) (length lst)) (length lst) (+ ind i 1))))) for pos from 0 collect (if (member pos wta) (reduce #'+ x) 0)))
+	       (nth (random (length wta)) wta)))))
+
+(defun <thrifty-code (lst &optional (key :left) (from 0))
+  (case key
+    (:right (+ (1- from) (- (length lst) (winner-take-all lst))))
+    (:left (+ (winner-take-all lst) from))
+    (:mid (- (winner-take-all lst) (floor (/ (length lst) 2))))))
+
 ;;;  ;  ;;  ; ; ;; ; ; ; ;   ;
 
 (defgeneric the-ds (self) (:method ((self mlt)) (cdar (ordinate (loop for i in (ht (date-report self) :al) when (ds-p (cdr i)) collect i) '> :key #'car))))
@@ -75,9 +108,10 @@ Note that the output is clipped if the range of input is largest than values of 
   (if (mlt-p (id mlt))
       (cond ((and bypass (ml? bypass)) (when update (apply #'set-ds (cons (id mlt) (list :bypass bypass)))) (funcall bypass data))
 	    ((ml? (cadr (list! (dt (the-ds (id mlt)))))) (funcall (cadr (dt (the-ds (id mlt)))) data))
-	    (t data))      
+	    (t data))
       (if (and minin maxin minout maxout curve)
 	  (if (> (abs curve) 0.001)
+	      ; i.e. SuperCollider method .curvelin
 	      (let* ((grow (exp curve))
 		     (a (/ (- maxin minin) (- 1 grow)))
 		     (b (+ minin a)))

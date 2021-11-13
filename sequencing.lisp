@@ -77,57 +77,44 @@
 
 (defvar *all-sequencing* '())
 
-(defun init-sequencing (&key dub description net mem-size pulse pattern rule tag meter remanence odds osc)
+(defun init-sequencing (&key dub description net buffer-size pulse sync pattern rule tag meter remanence odds routine osc)
   (push (make-instance 'sequencing :name 'sequencing) *all-sequencing*)
   (let ((seq (car *all-sequencing*)))
     (setf (dub seq) (if dub dub (name seq)))
     (when description (setf (description seq) description))
     (when net (setf (net seq) net))
-    (when mem-size (setf (buffer-size seq) mem-size))
+    (when buffer-size (setf (buffer-size seq) buffer-size))
     (when pulse (setf (pulse seq) pulse))
+    (when sync (setf (sync seq) sync))
     (when pattern (setf (pattern seq) pattern))
     (when rule (setf (rule seq) rule))
     (when tag (setf (tag seq) tag))
     (when meter (setf (meter seq) meter))
     (when remanence (setf (remanence seq) remanence))
     (when odds (setf (odds seq) odds))
+    (when routine (setf (routine seq) routine))
     (when osc (setf (udp-list seq) osc)) 
     (eval (list 'defparameter (read-from-string (format nil "~S" (dub seq))) seq))))
 
-(defun create-sequencing (&key dub description net mem-size pulse pattern rule tag meter remanence odds osc)
-  (init-sequencing :dub dub :description description :net net :mem-size mem-size :pulse pulse :pattern pattern :rule rule :tag tag :meter meter :remanence remanence :odds odds :osc osc))
+(defun create-sequencing (&key dub net description pattern pulse rule odds meter buffer-size remanence osc tag)
+  (init-sequencing :dub dub :net net :description description :pulse pulse :pattern pattern :rule rule :odds odds :meter meter :remanence remanence :buffer-size buffer-size :osc osc :tag tag))
 
-;------------------------------------------------------------------
-;                                                           COMPUTE   
-
-(defgeneric markov-chain (self net &optional buffer)
-  (:method ((self sequencing) (net area) &optional (buffer (dyn-buffer self)))
-    (if buffer
-	(progn
-	  (if (or (numberp (car (last buffer))) (loop for i in (car (last buffer)) never (eq '? i)))
-	      ;; compute next clique from the previous with rule
-	      (setf buffer (reverse (cons (funcall (rule self) self) (if (numberp (car (last buffer))) (reverse (butlast buffer)) (reverse buffer)))))
-	      ;; if next-event-probability=nil remove oldest clique
-	      (setf buffer (cdr buffer)))
-	  ;; locate the last clique
-	  (let ((nc (next-event-probability buffer net :result :eval :remanence (remanence self) :opt :buffer :compute (odds self))))
-	    (when nc
-	      (setf buffer (reverse (cons nc (reverse (butlast buffer))))))
-	    (if (member '? (car (last buffer)))
-		(markov-chain self net buffer)	
-		(setf (dyn-buffer self) buffer))))
-	(setf (dyn-buffer self) (list (next-event-probability nil net :result :eval :remanence (remanence self) :compute (odds self))))))
-  (:method ((self sequencing) (net mlt) &optional (buffer (dyn-buffer self)))
-    (markov-chain self (id (net net)) buffer)))
-
-(defgeneric cycle-chain (self net &optional cycle)
-  (:method ((self sequencing) (net mlt) &optional cycle)
-    ;; the cycle is stored in (pattern self)
-    (unless (pattern self) (setf (pattern self) cycle))
-    ;; initiate (dyn-buffer self)
-    (unless (dyn-buffer self) (setf (dyn-buffer self) (list (next-event-probability (list (list (car (nth (mod (counter self) (length (pattern self))) (pattern self))) '? '?)) (id (net (id (net self)))) :result :eval :opt :buffer :compute (odds self) :remanence (remanence self))))) 
-    ;; evaluation is a fanal indice stored in (dyn-buffer self)
-    (setf (dyn-buffer self) (reverse (cons (next-event-probability (car (nth (mod (counter self) (length (pattern self))) (pattern self))) net :remanence (remanence self) :opt (nth (mod (counter self) (length (pattern self))) (pattern self)) :compute (odds self)) (reverse (dyn-buffer self)))))))
+(defmethod copy-sequencing ((self sequencing) &key dub description net buffer-size pulse sync pattern rule tag meter remanence odds osc)
+  (init-sequencing
+   :dub dub
+   :description (if description description (format nil "~A dub:~A copy" (name self) (dub self)))
+   :net (if net net (net self))
+   :buffer-size (if buffer-size buffer-size (buffer-size self))
+   :pulse (if pulse pulse (pulse self))
+   :sync (if sync sync (sync self))
+   :pattern (if pattern pattern (pattern self))
+   :rule (if rule rule (rule self))
+   :tag (if tag tag (tag self))
+   :meter (if meter meter (meter self))
+   :remanence (if remanence remanence (remanence self))
+   :odds (if odds odds (odds self))
+   :osc (if osc osc (udp-list self))
+   :routine (routine self)))
 
 ;------------------------------------------------------------------
 ;                                                            THREAD   
@@ -174,11 +161,17 @@
 
 (defvar +beat+ 1)
 (defvar +clock+ 0)
-#+sbcl(defparameter ++clock++ (sb-thread:make-thread #'(lambda () (loop do (incf +clock+) (sleep *latency*))) :name "++clock++"))
-#+openmcl(defparameter ++clock++ (ccl:process-run-function "++clock++" #'(lambda () (loop do (incf +clock+) (sleep *latency*)))))
+#+sbcl(defvar ++clock++ (sb-thread:make-thread #'(lambda () (loop do (incf +clock+) (sleep *latency*))) :name "++clock++"))
+#+openmcl(defvar ++clock++ (ccl:process-run-function "++clock++" #'(lambda () (loop do (incf +clock+) (sleep *latency*)))))
 
 ;------------------------------------------------------------------
-;                                                        SET & PLAY   
+;                                                               SET   
+
+(defgeneric clique>xpos (self clique)
+  (:method ((self mlt) (clique list)) (clique>xpos (id (net self)) clique))
+  (:method ((self area) (clique list))
+    (when (test-clique self clique)
+      (loop for i in clique for n in (soms-list self) collect (xpos (id (nth i (fanaux-list (id n)))))))))
 
 (defun dispatch-udp-list (udp-list &key verbose)
   (if verbose (format t "~{IP:~{~A~^:~}~&~}~&" (dispatch-udp-list udp-list))
@@ -189,12 +182,6 @@
 				      (loop for x in ind for next from 1
 					 collect (subseq udp-list x (nth next ind))))))
 		 (list (list "127.0.0.1" 7771))))))
-
-(defgeneric clique>xpos (self clique)
-  (:method ((self mlt) (clique list)) (clique>xpos (id (net self)) clique))
-  (:method ((self area) (clique list))
-    (when (test-clique self clique)
-      (loop for i in clique for n in (soms-list self) collect (xpos (id (nth i (fanaux-list (id n)))))))))
 
 (defgeneric bo (self &optional ind)
   (:method ((self sequencing) &optional ind)
@@ -213,18 +200,8 @@
 
 (defgeneric sync! (self)
   (:method ((self sequencing))
-    (cond  ((and (outset self) (zerop (mod (/ +clock+ (* (pulse self) (/ +beat+ *latency*))) (meter self)))) (setf (outset self) nil) t)
-	   ((and (listp (sync self)) (integerp (rationalize (mod (/ +clock+ (* (cdr (sync self)) (/ +beat+ *latency*))) (meter self))))) (>= +clock+ (offset self))))))
-
-(defgeneric set-sync (self state &key pulse meter)
-  (:method ((self sequencing) (state t) &key (pulse (pulse self)) (meter (meter self)))
-    (setf (sync self) state
-	  (pulse self) pulse
-	  (meter self) meter)
-    (when state (sync>pulse self))
-    (if state
-	(format t "meter*: ~S; beat: ~S; pulse*: ~S" (car (sync self)) +beat+ (cdr (sync self)))
-	(format t "meter: ~S; beat: ~S; pulse: ~S") (meter self) +beat+ (pulse self))))
+    (cond  ((and (outset self) (zerop (mod (/ +clock+ (* (pulse self) (/ +beat+ *latency*))) (meter self)))) (setf (outset self) nil) (incf (counter self)))
+	   ((and (listp (sync self)) (integerp (rationalize (mod (/ +clock+ (* (cdr (sync self)) (/ +beat+ *latency*))) (meter self))))) (when (zerop (mod (/ +clock+ (* (pulse self) (/ +beat+ *latency*))) (meter self))) (incf (counter self))) (>= +clock+ (offset self))))))
 
 (defmacro set-routine (self &body funcs)
   "Managing buffer-out with dyn-buffer... 
@@ -234,30 +211,35 @@ funcs take a sequencing class as argument -- conventionally named self"
      (format t "OSC will send message to:~&")
      (dispatch-udp-list (udp-list ,self) :verbose t)
      (format t "TAG: /~A" (read-from-string (remove #\/ (string (tag ,self)))))
-     (setf (routine ,self) (lambda* (self)
+     (setf (routine ,self) (lambda* (self) 
 				    (loop do
 					 (when (< (length (buffer-out self)) (buffer-size self))
-					   ,@funcs ;; should be a thread to avoid delay osc
+					   ,@funcs ;; should be a thread to avoid delay osc???
 					   (push (car (last (dyn-buffer self))) (buffer-out self)))
 					;-------------------------------------------------------
 					 (when (and (buffer-out self) (if (sync self) (sync! self) (>= +clock+ (offset self))))
 					   
 					   (let ((pulse
-						  (cond ((null (sync self)) (* (pulse self) (1+ (bo self 1))))
+						  (cond ((null (sync self)) (* +beat+ (pulse self) (1+ (bo self 1))))
 							((or (listp (sync self)) (sync>pulse self)) (* (cdr (sync self)) (1+ (bo self 1))))
 							(t (error "See pulse cond in your routine.")))))
+
+					     (when *debug* (format #.*standard-output* "~S~&" (buffer-out self)))
 					     
 					     (loop for ip in (dispatch-udp-list (udp-list self)) 
 						do (send-udp
 						    (read-from-string
 						     (format nil "(\"/~S\" ~{\"~S\"~})"
 							     (read-from-string (remove #\/ (string (tag self))))
-							     (append (bo self) (bo self :xpos) (list pulse)))) ;; the positions should be send in a different port and tag
+							     (append (bo self) (bo self :xpos) (list pulse)))) 
 						    (car ip) (cadr ip)))
 					     (setf (offset self) (+ (/ pulse *latency*) +clock+)
 						   (buffer-out self) (butlast (buffer-out self)))))
 					;-------------------------------------------------------
 					 (sleep *latency*))))))
+
+;------------------------------------------------------------------
+;                                                              PLAY   
 
 (defgeneric kill-routine (self))
 (defgeneric act-routine (self))
@@ -269,6 +251,7 @@ funcs take a sequencing class as argument -- conventionally named self"
     (when (%threadp (routine self)) (setf cpt (%initform-thread (routine self))) (%kill-thread (routine self)))
     (setf (outset self) t
 	  (routine self) cpt
+	  (counter self) 0
 	  (buffer-out self) nil
 	  (dyn-buffer self) nil)))
 
@@ -313,10 +296,10 @@ funcs take a sequencing class as argument -- conventionally named self"
 			  (eq s (read-from-string "DYN-BUFFER"))
 			  (eq s (read-from-string "OFFSET"))
 			  (eq s (read-from-string "COUNTER")))
-			  (format stream " "))
+			  (format stream ""))
 		     (t (format stream " :~S (QUOTE ~S)" s val)))))
 	(format stream ") N3::*ALL-SEQUENCING*)")
-	(format stream "(DEFVAR ~S (CAR *ALL-SEQUENCING*))" (dub self))))
+	(format stream " (DEFVAR ~S (CAR *ALL-SEQUENCING*))" (dub self))))
     (UIOP:run-program (format nil "sh -c '~S ~S'" *UPDATE-SAVED-NET* path))))
 
 (defun sequencing-menu ()
@@ -334,9 +317,42 @@ funcs take a sequencing class as argument -- conventionally named self"
 	  (load (concatenate 'string *N3-BACKUP-DIRECTORY* (string (car (split-symbol (nth (- val 1) items)))) ".seq"))
 	  (format t "~45<~A[~A] ...~;... loaded ...~>~%" (name (car *all-sequencing*)) (dub (car *all-sequencing*))))))))
 
+;------------------------------------------------------------------
+;                                                           COMPUTE   
+
+(defgeneric markov-chain (self net &optional buffer)
+  (:method ((self sequencing) (net area) &optional (buffer (dyn-buffer self)))
+    (if buffer
+	(progn
+	  (if (or (numberp (car (last buffer))) (loop for i in (car (last buffer)) never (eq '? i)))
+	      ;; compute next clique from the previous with rule
+	      (setf buffer (reverse (cons (funcall (rule self) self) (if (numberp (car (last buffer))) (reverse (butlast buffer)) (reverse buffer)))))
+	      ;; if next-event-probability=nil remove oldest clique
+	      (setf buffer (cdr buffer)))
+	  ;; locate the last clique
+	  (let ((nc (next-event-probability buffer net :result :eval :remanence (remanence self) :opt :buffer :compute (odds self))))
+	    (when nc
+	      (setf buffer (reverse (cons nc (reverse (butlast buffer))))))
+	    (if (member '? (car (last buffer)))
+		(markov-chain self net buffer)	
+		(setf (dyn-buffer self) buffer))))
+	(setf (dyn-buffer self) (list (next-event-probability nil net :result :eval :remanence (remanence self) :compute (odds self))))))
+  (:method ((self sequencing) (net mlt) &optional (buffer (dyn-buffer self)))
+    (markov-chain self (id (net net)) buffer)))
+
+(defgeneric cycle-chain (self net &optional cycle)
+  (:method ((self sequencing) (net mlt) &optional cycle)
+    ;; the cycle is stored in (pattern self)
+    (unless (pattern self) (setf (pattern self) cycle))
+    ;; initiate (dyn-buffer self)
+    (unless (dyn-buffer self) (setf (dyn-buffer self) (list (next-event-probability (list (list (car (nth (mod (counter self) (length (pattern self))) (pattern self))) '? '?)) (id (net (id (net self)))) :result :eval :opt :buffer :compute (odds self) :remanence (remanence self))))) 
+    ;; evaluation is a fanal indice stored in (dyn-buffer self)
+    (setf (dyn-buffer self) (reverse (cons (next-event-probability (car (nth (mod (counter self) (length (pattern self))) (pattern self))) net :remanence (remanence self) :opt (nth (mod (counter self) (length (pattern self))) (pattern self)) :compute (odds self)) (reverse (dyn-buffer self)))))))
+
 ;;++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 (make-instance 'neuron :name 'neuron)
 (make-instance 'neuron :name 'ghost)
+(make-instance 'area :name 'area)
 (make-instance 'sequencing :name 'sequencing)
 (defconstant MLT (make-instance 'mlt))
 (format t "; MLT default functions:~&; DISTANCE-IN: ~S~&; DISTANCE-OUT: ~S~&; VOISINAGE: ~S~&; CARTE: ~S~&" (DISTANCE-IN MLT) (DISTANCE-OUT MLT) (VOISINAGE MLT) (CARTE MLT))

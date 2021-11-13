@@ -37,7 +37,14 @@
 	   :SCALING
 	   :MAPPING
 
-	   :DIFFERENTIAL-VECTOR))
+           :DIFFERENTIAL-VECTOR
+
+	   :CREATE-SEQUENCING
+           :COPY-SEQUENCING
+	   :SET-ROUTINE
+           :ACT-ROUTINE
+	   :KILL-ROUTINE
+	   ))
 
 (progn
   (ignore-errors (require 'fosc))

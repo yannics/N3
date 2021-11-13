@@ -187,48 +187,17 @@ with sum of weight(i) = 1.0
 |#
 ;(assert (= 1 (loop for i in (mapcar #'cadr problist) sum i)))
 
-(defun rnd-weighted (problist &optional (r '(0)))
+(defun rnd-weighted (problist &key (r '(0)))
   (loop for i in (mapcar #'cadr problist) do (push (+ (car r) i) r))
   (let ((res (nth (1- (length (loop for i in (reverse r) while (> (- 1 (random 1.0)) i) collect i))) problist)))
     (values (car res) (cadr res))))
 
-(defun max-weighted (problist &key head rep)
-  (let* ((lst (ordinate problist #'> :key #'cadr))
-	 (al (if (and rep head (eq (car (last head)) (cadr lst))) (cdr lst) lst))
-	 (tmp (cons (car al) (loop for i in (cdr al) until (< (cadr i) (cadr (car al))) collect i)))
-	 (res (nth (random (length tmp)) tmp)))
-    (values (car res) (cadr res))))
-
-;------------------------------------------------------------------
-;                                                     miscellaneous
-
-(defun >thrifty-code (a digit &optional (key :left) (from 0)) ;; possible key are -> :left (default), :right, :mid (implies an odd digit number)
-  (case key
-    (:right (reverse (replace-a 1 (- a from) (make-list digit :initial-element 0))))
-    (:left (replace-a 1 (- a from) (make-list digit :initial-element 0)))
-    ;; in the case of :mid, the value of from=0 -> clip the exceeding values and from=1 (default) -> apply modulo +/-(floor (/ digit 2))
-    (:mid (when (oddp digit) (replace-a 1 (+ (cond
-					       ((and (zerop from) (> a (floor (/ digit 2)))) (floor (/ digit 2)))
-					       ((and (zerop from) (< a (* -1 (floor (/ digit 2))))) (* -1 (floor (/ digit 2))))
-					       ((and (= 1 from) (> a (floor (/ digit 2)))) (mod a (floor (/ digit 2))))
-					       ((and (= 1 from) (< a (* -1 (floor (/ digit 2))))) (mod a (* -1 (floor (/ digit 2)))))
-					       (t a)) (floor (/ digit 2))) (make-list digit :initial-element 0))))))
-
-(defun winner-take-all (lst &optional (ind 0) tmp) ;; the result is the position of the 'winner' in lst
-  (let ((wta (loop for x in (if tmp tmp lst) for i from 0 when (= x (reduce #'max (if tmp tmp lst))) collect i))) 
-       (if (singleton wta)
-	   (car wta)
-	   (if (< ind (length lst))
-	       (winner-take-all
-		lst
-		(1+ ind)
-		(loop for x in (butlast (loop for i from 0 to (length lst) collect (subseq lst (if (< (- i ind) 0) 0 (- i ind)) (if (> (+ ind i 1) (length lst)) (length lst) (+ ind i 1))))) for pos from 0 collect (if (member pos wta) (reduce #'+ x) 0)))
-	       (nth (random (length wta)) wta)))))
-
-(defun <thrifty-code (lst &optional (key :left) (from 0))
-  (case key
-    (:right (+ (1- from) (- (length lst) (winner-take-all lst))))
-    (:left (+ (winner-take-all lst) from))
-    (:mid (- (winner-take-all lst) (floor (/ (length lst) 2))))))
+(defun max-weighted (problist &key exclude) ; exclude is a list of item(s)
+  (let ((nproblist (remove nil (if (and exclude (listp exclude)) (loop for it in problist collect (when (not (member (car it) exclude :test #'equalp)) it)) problist))))
+    (if nproblist
+      (let* ((al (ordinate (mat-trans (list (car (mat-trans nproblist)) (normalize-sum (cadr (mat-trans nproblist))))) #'> :key #'cadr))
+	     (tmp (cons (car al) (loop for i in (cdr al) until (< (cadr i) (cadr (car al))) collect i)))
+	     (res (nth (random (length tmp)) tmp)))
+	(values (car res) (cadr res))))))
 
 ;------------------------------------------------------------------
