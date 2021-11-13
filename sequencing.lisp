@@ -203,6 +203,10 @@
     (cond  ((and (outset self) (zerop (mod (/ +clock+ (* (pulse self) (/ +beat+ *latency*))) (meter self)))) (setf (outset self) nil) (incf (counter self)))
 	   ((and (listp (sync self)) (integerp (rationalize (mod (/ +clock+ (* (cdr (sync self)) (/ +beat+ *latency*))) (meter self))))) (when (zerop (mod (/ +clock+ (* (pulse self) (/ +beat+ *latency*))) (meter self))) (incf (counter self))) (>= +clock+ (offset self))))))
 
+(defgeneric print-buffer-out (self)
+  (:method ((self sequencing))
+    (when *debug* (format #.*standard-output* "~S~&" (buffer-out self)))))
+
 (defmacro set-routine (self &body funcs)
   "Managing buffer-out with dyn-buffer... 
 funcs take a sequencing class as argument -- conventionally named self"
@@ -223,9 +227,7 @@ funcs take a sequencing class as argument -- conventionally named self"
 						  (cond ((null (sync self)) (* +beat+ (pulse self) (1+ (bo self 1))))
 							((or (listp (sync self)) (sync>pulse self)) (* (cdr (sync self)) (1+ (bo self 1))))
 							(t (error "See pulse cond in your routine.")))))
-
-					     (when *debug* (format #.*standard-output* "~S~&" (buffer-out self)))
-					     
+					     (print-buffer-out self)					    
 					     (loop for ip in (dispatch-udp-list (udp-list self)) 
 						do (send-udp
 						    (read-from-string
