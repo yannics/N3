@@ -40,7 +40,7 @@
            :DIFFERENTIAL-VECTOR
 
 	   :CREATE-SEQUENCING
-           :COPY-SEQUENCING
+           :SET-RULE
 	   :SET-ROUTINE
            :ACT-ROUTINE
 	   :KILL-ROUTINE

@@ -50,8 +50,9 @@
    (udp-list
     :initform nil :initarg :udp-list :accessor udp-list)
    (mem-cache
-    :initform nil :initarg :mem-cache :accessor mem-cache)
-   ))
+    :initform (make-hash-table :test #'equalp) :initarg :mem-cache :accessor mem-cache)))
+
+(defvar +routine+ nil)
 
 (defmethod initialize-instance :after ((self sequencing) &key name)
   (let ((ar (if name 
@@ -59,6 +60,7 @@
 	       (make-new-symbol 'sequencing))))
     (setf (name self) ar
           (symbol-value ar) self)
+    (setf (gethash 'routine-initform (mem-cache self)) +routine+)
     ar))
 
 ;; redefines lisp representation (-> print-name)
@@ -77,7 +79,7 @@
 
 (defvar *all-sequencing* '())
 
-(defun init-sequencing (&key dub description net buffer-size pulse sync pattern rule tag meter remanence odds routine osc)
+(defun init-sequencing (&key dub description net buffer-size pulse sync pattern tag meter remanence odds osc)
   (push (make-instance 'sequencing :name 'sequencing) *all-sequencing*)
   (let ((seq (car *all-sequencing*)))
     (setf (dub seq) (if dub dub (name seq)))
@@ -87,74 +89,41 @@
     (when pulse (setf (pulse seq) pulse))
     (when sync (setf (sync seq) sync))
     (when pattern (setf (pattern seq) pattern))
-    (when rule (setf (rule seq) rule))
     (when tag (setf (tag seq) tag))
     (when meter (setf (meter seq) meter))
     (when remanence (setf (remanence seq) remanence))
     (when odds (setf (odds seq) odds))
-    (when routine (setf (routine seq) routine))
     (when osc (setf (udp-list seq) osc)) 
     (eval (list 'defparameter (read-from-string (format nil "~S" (dub seq))) seq))))
 
-(defun create-sequencing (&key dub net description pattern pulse rule odds meter buffer-size remanence osc tag)
-  (init-sequencing :dub dub :net net :description description :pulse pulse :pattern pattern :rule rule :odds odds :meter meter :remanence remanence :buffer-size buffer-size :osc osc :tag tag))
-
-(defmethod copy-sequencing ((self sequencing) &key dub description net buffer-size pulse sync pattern rule tag meter remanence odds osc)
-  (init-sequencing
-   :dub dub
-   :description (if description description (format nil "~A dub:~A copy" (name self) (dub self)))
-   :net (if net net (net self))
-   :buffer-size (if buffer-size buffer-size (buffer-size self))
-   :pulse (if pulse pulse (pulse self))
-   :sync (if sync sync (sync self))
-   :pattern (if pattern pattern (pattern self))
-   :rule (if rule rule (rule self))
-   :tag (if tag tag (tag self))
-   :meter (if meter meter (meter self))
-   :remanence (if remanence remanence (remanence self))
-   :odds (if odds odds (odds self))
-   :osc (if osc osc (udp-list self))
-   :routine (routine self)))
+(defun create-sequencing (&key dub net description pulse pattern odds meter sync remanence buffer-size osc tag)
+  (init-sequencing :dub dub :net net :description description :pulse pulse :pattern pattern :odds odds :meter meter :sync sync :remanence remanence :buffer-size buffer-size :osc osc :tag tag))
 
 ;------------------------------------------------------------------
 ;                                                            THREAD   
 
-;; ... from bordeaux-threads package ... ;;
-(defun %threadp (object)                 ;;
-  #+sbcl(typep object 'sb-thread:thread) ;;
-  #+openmcl(typep object 'ccl:process))  ;;
-                                         ;;
-(defun %all-threads ()                   ;;
-  #+sbcl(sb-thread:list-all-threads)     ;;
-  #+openmcl(ccl:all-processes))          ;;
-;; ..................................... ;;
+;; /!\ currently works only on ccl64
 
-(defun %preset-thread (function name &optional postpend)
-  #+sbcl(sb-thread:make-thread function :name (format nil "~S-~S" name (if (symbolp postpend) postpend 'thread)))
-  #+openmcl(ccl:process-preset (ccl:make-process (format nil "~S-~S" name (if (symbolp postpend) postpend 'thread))) function name))
+#+openmcl(progn
+	   (defun _threadp (object) (typep object 'ccl:process)) 
+	   (defun _all-threads () (ccl:all-processes))
+	   (defun _preset-thread (function name) (ccl:process-preset (ccl:make-process name) function name))
+	   (defun _enable-thread (thread) (ccl:process-enable thread))
+	   (defun _make-thread (function name) (_enable-thread (_preset-thread function name)))
+	   (defun _thread-zombie (thread) (ccl:process-exhausted-p thread))
+	   (defun _initform-thread (thread) (car (ccl::process-initial-form thread)))
+	   (defun _pause-thread (thread) (ccl:process-suspend thread))
+	   (defun _resume-thread (thread) (ccl:process-resume thread))
+	   (defun _kill-thread (thread) (ccl:process-kill thread)))
 
-(defun %enable-thread (thread)
-  #+sbcl(declare (ignore thread))
-  #+openmcl(ccl:process-enable thread))
-
-#+sbcl(defparameter %current-thread sb-thread:*current-thread*)
-#+openmcl(defparameter %current-thread ccl:*current-process*)
-
-(defun %initform-thread (thread)
-  #+sbcl(declare (ignore thread)) 
-  #+openmcl(car (ccl::process-initial-form thread)))
-
-(defun %pause-thread (thread)
-  #+sbcl(declare (ignore thread))
-  #+openmcl(ccl:process-suspend thread))
-
-(defun %resume-thread (thread)
-  #+sbcl(declare (ignore thread))
-  #+openmcl(ccl:process-resume thread))
-
-(defun %kill-thread (thread)
-  #+sbcl(sb-thread:terminate-thread thread)
-  #+openmcl(ccl:process-kill thread))
+(defgeneric check-thread (self)
+  (:method ((self sequencing))
+    (cond ((and (_threadp (gethash 'compute (mem-cache self))) (_thread-zombie (gethash 'compute (mem-cache self)))) (format t ";compute -> thread zombie ~S" (gethash 'compute (mem-cache self))))
+	  ((and (_threadp (gethash 'compute (mem-cache self))) (not (_thread-zombie (gethash 'compute (mem-cache self))))) (format t ";compute -> thread running -- buffers ~S ~S" (if (= (buffer-size self) (length (buffer-out self))) 'filled 'filling) (gethash 'compute (mem-cache self))))
+	  (t (format t ";compute -> thread NIL")))
+    (cond ((and (_threadp (gethash 'routine (mem-cache self))) (_thread-zombie (gethash 'routine (mem-cache self)))) (format t "~&;routine -> thread zombie ~S" (gethash 'routine (mem-cache self))))
+	  ((and (_threadp (gethash 'routine (mem-cache self))) (not (_thread-zombie (gethash 'routine (mem-cache self))))) (format t "~&;routine -> thread running ~S" (gethash 'routine (mem-cache self))))
+	  (t (format t "~&;routine -> thread NIL")))))
 
 ;------------------------------------------------------------------
 ;                                                             CLOCK   
@@ -185,10 +154,11 @@
 
 (defgeneric bo (self &optional ind)
   (:method ((self sequencing) &optional ind)
-    (cond ((integerp ind) (nth (1- ind) (car (last (buffer-out self)))))
-	  ((and (eq ind :xpos) (or (area-p (id (net self))) (area-p (id (net (id (net self)))))))
-	   (flatten (clique>xpos (id (net self)) (car (last (buffer-out self))))))
-	  (t (car (last (buffer-out self)))))))
+    (let ((buf (if (buffer-out self) (car (last (buffer-out self))) (car (last (dyn-buffer self))))))
+      (cond ((integerp ind) (nth (1- ind) buf))
+	    ((and (eq ind :xpos) (or (area-p (id (net self))) (area-p (id (net (id (net self)))))))
+	     (flatten (clique>xpos (id (net self)) buf)))
+	    (t buf)))))
 
 (defgeneric sync>pulse (self)
   (:method ((self sequencing))
@@ -203,75 +173,78 @@
     (cond  ((and (outset self) (zerop (mod (/ +clock+ (* (pulse self) (/ +beat+ *latency*))) (meter self)))) (setf (outset self) nil) (incf (counter self)))
 	   ((and (listp (sync self)) (integerp (rationalize (mod (/ +clock+ (* (cdr (sync self)) (/ +beat+ *latency*))) (meter self))))) (when (zerop (mod (/ +clock+ (* (pulse self) (/ +beat+ *latency*))) (meter self))) (incf (counter self))) (>= +clock+ (offset self))))))
 
-(defgeneric print-buffer-out (self)
-  (:method ((self sequencing))
-    (when *debug* (format #.*standard-output* "~S~&" (buffer-out self)))))
-
 (defmacro set-routine (self &body funcs)
-  "Managing buffer-out with dyn-buffer... 
+  "Managing buffer-out with dyn-buffer according to the rule(s) in (rule self)... 
 funcs take a sequencing class as argument -- conventionally named self"
   `(when (sequencing-p ,self)
-     (when (%threadp (routine ,self)) (%kill-thread (routine ,self)))
-     (format t "OSC will send message to:~&")
-     (dispatch-udp-list (udp-list ,self) :verbose t)
-     (format t "TAG: /~A" (read-from-string (remove #\/ (string (tag ,self)))))
-     (setf (routine ,self) (lambda* (self) 
-				    (loop do
-					 (when (< (length (buffer-out self)) (buffer-size self))
-					   ,@funcs ;; should be a thread to avoid delay osc???
-					   (push (car (last (dyn-buffer self))) (buffer-out self)))
-					;-------------------------------------------------------
-					 (when (and (buffer-out self) (if (sync self) (sync! self) (>= +clock+ (offset self))))
-					   
-					   (let ((pulse
-						  (cond ((null (sync self)) (* +beat+ (pulse self) (1+ (bo self 1))))
-							((or (listp (sync self)) (sync>pulse self)) (* (cdr (sync self)) (1+ (bo self 1))))
-							(t (error "See pulse cond in your routine.")))))
-					     (print-buffer-out self)					    
-					     (loop for ip in (dispatch-udp-list (udp-list self)) 
-						do (send-udp
-						    (read-from-string
-						     (format nil "(\"/~S\" ~{\"~S\"~})"
-							     (read-from-string (remove #\/ (string (tag self))))
-							     (append (bo self) (bo self :xpos) (list pulse)))) 
-						    (car ip) (cadr ip)))
-					     (setf (offset self) (+ (/ pulse *latency*) +clock+)
-						   (buffer-out self) (butlast (buffer-out self)))))
-					;-------------------------------------------------------
-					 (sleep *latency*))))))
+     (if (rule ,self)
+	 (progn
+	   (when (_threadp (gethash 'routine (mem-cache ,self))) (_kill-thread (gethash 'routine (mem-cache ,self))) (remhash 'routine (mem-cache ,self)))
+	   (when (_threadp (gethash 'compute (mem-cache ,self))) (_kill-thread (gethash 'compute (mem-cache ,self))) (remhash 'compute (mem-cache ,self)))
+	   (setf (routine ,self)
+		 (lambda* (self)
+		   (loop do
+		     (when (< (length (buffer-out self)) (buffer-size self)) ,@funcs)
+		     (sleep *latency*)))
+		 (gethash 'compute (mem-cache ,self))
+		 (_make-thread (routine ,self) ,self))
+	   (format t "OSC will send message to:~&")
+	   (dispatch-udp-list (udp-list ,self) :verbose t)
+	   (format t "TAG: /~A" (read-from-string (remove #\/ (string (tag ,self))))))
+	 (warn "Set rule first..."))))
+
+(defmacro set-rule (self &body funcs)
+  "The last function have to return a partial clique or tournoi according to the involved net...
+funcs take a sequencing class as argument -- conventionally named self"
+  `(when (sequencing-p ,self)
+     (setf (rule ,self) (lambda* (self) ,@funcs))))
+
+(setf +routine+
+      (lambda* (self)
+	       (loop do (when (and (dyn-buffer self) (if (sync self) (sync! self) (>= +clock+ (offset self))))					   
+			  (let ((pulse
+				  (cond ((null (sync self)) (* +beat+ (pulse self) (bo self 1)))
+					((or (listp (sync self)) (sync>pulse self)) (* (cdr (sync self)) (bo self 1)))
+					(t (error "See pulse cond in your routine.")))))
+			    (loop for ip in (dispatch-udp-list (udp-list self)) 
+				  do (send-udp
+				      (read-from-string
+				       (format nil "(\"/~S\" ~{\"~S\"~})"
+					       (read-from-string (remove #\/ (string (tag self))))
+					       (append (bo self) (bo self :xpos) (list pulse)))) 
+				      (car ip) (cadr ip)))
+			    (when (buffer-out self) (setf (buffer-out self) (butlast (buffer-out self))))
+			    (setf (offset self) (+ (/ pulse *latency*) +clock+)
+				  (dyn-buffer self) (cdr (dyn-buffer self)))))
+			(sleep *latency*))))
 
 ;------------------------------------------------------------------
 ;                                                              PLAY   
 
 (defgeneric kill-routine (self))
 (defgeneric act-routine (self))
-(defgeneric pause-routine (self))
-(defgeneric resume-routine (self))
 
 (defmethod kill-routine ((self sequencing))
-  (let ((cpt (routine self)))
-    (when (%threadp (routine self)) (setf cpt (%initform-thread (routine self))) (%kill-thread (routine self)))
-    (setf (outset self) t
-	  (routine self) cpt
-	  (counter self) 0
-	  (buffer-out self) nil
-	  (dyn-buffer self) nil)))
+  (when (_threadp (gethash 'routine (mem-cache self)))
+    (_kill-thread (gethash 'routine (mem-cache self)))
+    (remhash 'routine (mem-cache self))
+    (loop for ip in (dispatch-udp-list (udp-list self)) 
+	  do (send-udp
+	      (read-from-string
+	       (format nil "(\"/~S\" \"0\")"
+		       (read-from-string (remove #\/ (string (tag self)))))) 
+	      (car ip) (cadr ip))))
+  (setf (outset self) t
+	(counter self) 0))
 
 (defmethod act-routine ((self sequencing))
   (kill-routine self)
-  (if (functionp (routine self)) (setf (routine self) (%preset-thread (routine self) self 'routine)) (error "No assigned function! use > (set-routine &progn funcs)")) 
-  (%enable-thread (routine self))
-  (format t "~S is playing on:~&" (name self))
+  (when (_thread-zombie (gethash 'compute (mem-cache self)))
+    (setf (gethash 'compute (mem-cache self)) (_make-thread (routine self) self)))
+  (if (functionp (gethash 'routine-initform (mem-cache self))) (setf (gethash 'routine (mem-cache self)) (_make-thread (gethash 'routine-initform (mem-cache self)) self)) (error "No assigned function! use > (set-routine &progn funcs)")) 
+(format t "~S is playing on:~&" (name self))
   (dispatch-udp-list (udp-list self) :verbose t)
   (format t "TAG: /~A" (read-from-string (remove #\/ (string (tag self))))))
-
-(defmethod pause-routine ((self sequencing))
-  (when (%threadp (routine self))
-    (setf (outset self) t) (%pause-thread (routine self))))
-
-(defmethod resume-routine ((self sequencing))
-  (when (%threadp (routine self))
-    (%resume-thread (routine self))))
 
 ;------------------------------------------------------------------
 ;                                                              SAVE   
@@ -286,7 +259,7 @@ funcs take a sequencing class as argument -- conventionally named self"
 	(format stream "(PUSH (MAKE-INSTANCE (QUOTE N3::SEQUENCING)")
 	(loop for s in slots-sequencing do
 	     (let ((val (funcall s self)))
-	       (cond ((%threadp val) (format stream " :~S ~S" s (ml! (%initform-thread val))))
+	       (cond ((hash-table-p val) (format stream " :~S (MAKE-HASH-TABLE :TEST #'EQUALP)" s))
 		     ((functionp val)
 		      (let ((mvl (multiple-value-list (function-lambda-expression val))))
 			(cond
@@ -301,7 +274,8 @@ funcs take a sequencing class as argument -- conventionally named self"
 			  (format stream ""))
 		     (t (format stream " :~S (QUOTE ~S)" s val)))))
 	(format stream ") N3::*ALL-SEQUENCING*)")
-	(format stream " (DEFVAR ~S (CAR *ALL-SEQUENCING*))" (dub self))))
+	(format stream " (DEFVAR ~S (CAR *ALL-SEQUENCING*))" (dub self))
+	(format stream " (SETF (GETHASH 'COMPUTE (MEM-CACHE ~S)) (_MAKE-THREAD (ROUTINE ~S) ~S))" (dub self) (dub self) (dub self))))
     (UIOP:run-program (format nil "sh -c '~S ~S'" *UPDATE-SAVED-NET* path))))
 
 (defun sequencing-menu ()
@@ -325,23 +299,27 @@ funcs take a sequencing class as argument -- conventionally named self"
 (defgeneric markov-chain (self net &optional buffer)
   (:method ((self sequencing) (net area) &optional (buffer (dyn-buffer self)))
     (if buffer
-	(progn
-	  (if (or (numberp (car (last buffer))) (loop for i in (car (last buffer)) never (eq '? i)))
-	      ;; compute next clique from the previous with rule
-	      (setf buffer (reverse (cons (funcall (rule self) self) (if (numberp (car (last buffer))) (reverse (butlast buffer)) (reverse buffer)))))
-	      ;; if next-event-probability=nil remove oldest clique
-	      (setf buffer (cdr buffer)))
-	  ;; locate the last clique
-	  (let ((nc (next-event-probability buffer net :result :eval :remanence (remanence self) :opt :buffer :compute (odds self))))
-	    (when nc
-	      (setf buffer (reverse (cons nc (reverse (butlast buffer))))))
-	    (if (member '? (car (last buffer)))
-		(markov-chain self net buffer)	
-		(setf (dyn-buffer self) buffer))))
-	(setf (dyn-buffer self) (list (next-event-probability nil net :result :eval :remanence (remanence self) :compute (odds self))))))
+	    (progn
+	      (if (or (numberp (car (last buffer))) (loop for i in (car (last buffer)) never (eq '? i)))
+		  ;; compute next clique from the previous with rule
+		  (setf buffer (reverse (cons (funcall (rule self) self) (if (numberp (car (last buffer))) (reverse (butlast buffer)) (reverse buffer)))))
+		  ;; if next-event-probability=nil remove oldest clique
+		  (setf buffer (cdr buffer)))
+	      ;; locate the last clique
+	      (let ((nc (next-event-probability buffer net :result :eval :remanence (remanence self) :opt :buffer :compute (odds self))))
+		(when nc
+		  (setf buffer (reverse (cons nc (reverse (butlast buffer))))))
+		(if (member '? (car (last buffer)))
+		    (markov-chain self net buffer)	
+		    (setf (dyn-buffer self) buffer))))
+	    (setf (dyn-buffer self) (list (next-event-probability nil net :result :eval :remanence (remanence self) :compute (odds self)))))
+    (when (> (length (dyn-buffer self)) (buffer-size self))
+      (push (car (last (dyn-buffer self))) (buffer-out self))
+      (setf (dyn-buffer self) (cdr (dyn-buffer self)))))
+      
   (:method ((self sequencing) (net mlt) &optional (buffer (dyn-buffer self)))
     (markov-chain self (id (net net)) buffer)))
-
+    
 (defgeneric cycle-chain (self net &optional cycle)
   (:method ((self sequencing) (net mlt) &optional cycle)
     ;; the cycle is stored in (pattern self)
