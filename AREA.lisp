@@ -202,7 +202,9 @@ In others word, clique = (index_fanal_SOM1 index_fanal_SOM2 ...)."
   (let* ((el (if (listp (car nodes)) (when (test-clique self nodes :as-nodes t) nodes) (when (test-clique self nodes) (loop for i in nodes for s from 0 when (integerp i) collect (list i s)))))	 
 	 (nht (arcs self))
 	 (ed (if (null el)
-		 (ht nht :k)
+		 nil
+		 ; to force a valid clique as result
+		 ;(ht nht :k)
 		 (loop for i in el collect (loop for key being the hash-keys of nht when (equalp i (car key)) collect key))))
 	 (cil (history (flat-once (flat-once (if (null el) (list ed) ed)))))
 	 (ped (loop for i in cil when (and (not (member (car i) el :test #'equalp)) (>= (cadr i) (length el))) collect (car i)))

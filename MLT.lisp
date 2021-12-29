@@ -284,6 +284,7 @@ nil = check if e1 and e2 are in common one node;
   (case key
     (:k (let (r) (maphash (lambda (k v) (declare (ignore v)) (push k r)) ht)  r))
     (:al (let (r) (maphash (lambda (k v) (push (cons k v) r)) ht) r))
+    (:v (let (r) (maphash (lambda (k v) (declare (ignore k)) (push v r)) ht)  r))
     (:p (format t "~&~s~%" ht) (maphash (lambda (k v) (format t "~@<~S~20T~3I~_~S~:>~%" k v)) ht))))
 
 (defmethod tournoi-p ((trn list) (self mlt) (ht symbol))

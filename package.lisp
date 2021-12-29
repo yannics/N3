@@ -22,6 +22,7 @@
 
 	   :NET-MENU
 	   :TREE-MENU
+	   :SEQUENCING-MENU
 	   
 	   :SEND-UDP
 	   :OSC-LISTEN
@@ -41,7 +42,8 @@
 
 	   :CREATE-SEQUENCING
            :SET-RULE
-	   :SET-ROUTINE
+           :SET-ROUTINE
+           :SET-SUBROUTINE
            :ACT-ROUTINE
 	   :KILL-ROUTINE
 	   ))
