@@ -52,11 +52,12 @@
     (append (make-list n :initial-element (car list)) (dupli (cdr list) n))))
 
 ;; multidimensional map quadrare
+;; TODO quadrare taking into account the field as list -- for now it takes only the first value ...
 (defgeneric quadrare (self nbre-neurons &key about topology))
 (defmethod quadrare ((self som) (nbre-neurons integer) &key about topology)
   (let* ((y '())
 	 (after-comma (if (and (integerp about) (>= about 0)) about 0))
-	 (n-dim (if topology topology 2))
+	 (n-dim (if topology topology (topology self)))
          (a (floor (expt nbre-neurons (/ 1 n-dim))))
 	 (rt (if (field self) (if (listp (field self)) (car (field self)) (field self)) a))
          (r (dotimes (e a y) (push (let ((nc (/ (round (* (expt 10 after-comma) (* (/ rt a) e))) (expt 10 after-comma)))) (if (= nc (round nc)) (round nc) (float nc))) y)))
@@ -70,7 +71,7 @@
 ;;  multidimentionnelle random map
 (defgeneric rnd-map (self nbre-neurons &key about topology))
 (defmethod rnd-map ((self som) (nbre-neurons integer) &key about topology)
-  (let* ((n-dim (if topology topology 2))
+  (let* ((n-dim (if topology topology (topology self)))
 	 (field (cond
 		  ((numberp (field self)) (loop repeat n-dim collect (field self)))
 		  ((and (listp (field self)) (= (length (field self)) n-dim)) (field self))

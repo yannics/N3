@@ -199,12 +199,13 @@ nil = check if e1 and e2 are in common one node;
 
 (defvar *all-som* '())
  
-(defun create-mlt (name n-input n-neurons &key carte topology field n-fanaux)
+(defun create-mlt (name n-input n-neurons &key carte topology field n-fanaux cover-value)
   (push (init-som (make-instance 'mlt :name name) n-input n-neurons :carte carte :topology topology :field field) *all-som*)
   (eval (list 'defvar name '(symbol-value name)))
   (let ((mlt (car *all-som*)))
     (setf (input mlt) (make-list n-input :initial-element 0)
 	  (neuron-gagnant mlt) (winner mlt))
+    (when (integerp cover-value) (setf (cover-value mlt) cover-value))
     (when n-fanaux (update-fanaux mlt n-fanaux))
     mlt))
 
