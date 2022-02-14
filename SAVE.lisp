@@ -32,8 +32,10 @@
 			  (loop for nl in (neurons-list self) do
 			       (format stream " (MAKE-INSTANCE (QUOTE N3::NEURON)")
 			       (loop for n in slots-neuron do
-				    (let ((val-n (funcall n nl)))
-				      (format stream " :~S (QUOTE ~S)" n val-n)))
+				 (if (eq n (read-from-string "NAME"))
+				     (format stream " :NAME (READ-FROM-STRING (STRING (GENSYM (FORMAT NIL \"NEURON-\"))))")
+				     (let ((val-n (funcall n nl)))
+				       (format stream " :~S (QUOTE ~S)" n val-n))))	       
 			       (format stream ")"))
 			  (format stream ")"))
 		   (cond ((hash-table-p val) (format stream " :~S (MAKE-HASH-TABLE :TEST #'EQUALP)" s))
@@ -42,11 +44,12 @@
 			    (cond
 			      ((listp (car (last mvl))) (format stream " :~S ~S" s (if (ml? val) (ml! val) val)))				
 			      (t (format stream " :~S #'~S" s (car (last mvl)))))))
+			 ((eq s (read-from-string "FANAUX-LIST")) (format stream " :FANAUX-LIST NIL"))
 			 ((eq s (read-from-string "GHOST")) (format stream " :GHOST (MAKE-INSTANCE (QUOTE N3::NEURON) :NAME (QUOTE GHOST) :NET (QUOTE ~S))" self))
 			 ((eq s (read-from-string "NEURON-GAGNANT")) (format stream " :NEURON-GAGNANT NIL"))
 			 (t (format stream " :~S (QUOTE ~S)" s val))))))
-	(format stream ") N3::*ALL-SOM*)")
-	(format stream "(DEFVAR ~S (SYMBOL-VALUE ~S))" (name self) self)
+	(format stream ") N3::*ALL-SOM*) ")
+	(format stream "(DEFVAR ~S (SYMBOL-VALUE ~S)) " (name self) self)
 	(when (mlt-p self)
 	  (maphash (lambda (k v) (format stream "(SETF (GETHASH (QUOTE ~S) (ONSET ~S)) ~S) " k (name self) v)) (onset self))
 	  (maphash (lambda (k v) (format stream "(SETF (GETHASH (QUOTE ~S) (FINE ~S)) ~S) " k (name self) v)) (fine self))
@@ -59,6 +62,7 @@
 			   (format stream "(SETF (GETHASH (QUOTE ~S) (DATE-REPORT ~S)) (MAKE-INSTANCE 'DS :dt (QUOTE ~S))) " k (name self) (list! (dt v))))
 		       (format stream "(SETF (GETHASH (QUOTE ~S) (DATE-REPORT ~S)) ~S) " k (name self) v)))
 		 (date-report self))
+	(when (mlt-p self) (format stream "(SETF (FANAUX-LIST ~S) (LOOP FOR I IN '~S COLLECT (NTH I (NEURONS-LIST ~S)))) " self (loop for i in (fanaux-list self) collect (ind (id i))) self))
 	(format stream "(SETF (NEURON-GAGNANT ~S) (WINNER ~S))" self self)))
     (UIOP:run-program (format nil "sh -c '~S ~S'" *UPDATE-SAVED-NET* path))))
 
@@ -104,7 +108,9 @@
 		  nn))) 
     (if (open file :if-does-not-exist nil)
 	(let ((tn (pathname-type (pathname file)))
-	      (nn (pathname-name (pathname file))))	
+	      (nn (pathname-name (pathname file))))
+	  ;;(TODO) add warning if already loaded or exist in *ALL-SOM* and *ALL-AREA*
+	  ;; + warning if net is not loaded when SOM/MLT
 	  (cond ((equalp tn "som") (if (member (read-from-string nn) *ALL-SOM* :test #'equalp)
 				       (warn "There is already a SOM called ~A in *ALL-SOM*. Consequently, this SOM has not been loaded." nn)
 				       (progn (load file)

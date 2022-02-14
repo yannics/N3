@@ -517,7 +517,7 @@ which lengths are successive values of the list <segmentation>.
   (declare (ignore remanence opt))
   (let* ((lw (get-match head (loop-wind seq (1+ (length head)))))
 	 (rh (history lw))
-	 (ord (ordinate (mapcar #'list (mapcar #'car rh) (normalize-sum (mapcar #'cadr rh))) #'> :key #'car)))
+	 (ord (ordinate (mapcar #'list (mapcar #'car rh) (normalize-sum (mapcar #'cadr rh))) #'> :key #'cadr))) 
     (case result
       (:prob (mapcar #'reverse ord))
       (:verbose (loop for i in ord do

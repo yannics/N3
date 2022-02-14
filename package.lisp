@@ -40,7 +40,9 @@
 
            :DIFFERENTIAL-VECTOR
 
+	   :*ALL-SEQUENCING*
 	   :CREATE-SEQUENCING
+	   :SET-PULSE
            :SET-RULE
            :SET-ROUTINE
            :SET-SUBROUTINE

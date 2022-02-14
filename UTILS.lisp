@@ -223,7 +223,7 @@ Note that the output is clipped if the range of input is largest than values of 
 	(loop for i in (butlast mht) do
 	     (if (ds-p (cdr i))
 		 (format t "Updated: ~a~&---> ~a~&" (tps (car i)) (cdr i))
-		 (progn (format t "Modified: ~a~&" (tps (car i))) (format t (cdr i)) (format t "~&"))))
+		 (progn (format t "Modified: ~a~&---> " (tps (car i))) (format t (cdr i)) (format t "~&"))))
 	(format t "Created: ~a~&---> ~a~&" (tps (caar (last mht))) (cdar (last mht)))))))
 
 (defmethod history ((self list) &optional (opt #'(lambda (x) (mapcar #'reverse (if (loop for i in x always (numberp (cadr i))) (ordinate x #'< :key #'cadr) (ordinate x #'< :key #'car))))))
@@ -250,7 +250,11 @@ Note that the output is clipped if the range of input is largest than values of 
 	(format t "~%~A: ~A" (+ item-number 1) (nth item-number items)))
       (format t "~%Load (Type any key to escape): ")
       (let ((val (read)))
-	(when (and (integerp val) (<= val (length items)) (> val 0)) (load-neural-network (string (car (split-symbol (nth (- val 1) items))))))))))
+	;;(TODO) add warning if already loaded or exist in *ALL-SOM* and *ALL-AREA* and do not load...
+	(if (listp val)
+	    (loop for i in val do 
+	      (when (and (integerp i) (<= i (length items)) (> i 0)) (load-neural-network (string (car (split-symbol (nth (- i 1) items)))))))
+	    (when (and (integerp val) (<= val (length items)) (> val 0)) (load-neural-network (string (car (split-symbol (nth (- val 1) items)))))))))))
 
 ;;;; ;; ;;  ; ;;;  ;; ;  ; ; ; ;   ;
 
@@ -412,30 +416,37 @@ Also, 'all-combinations' is a misnomer to refers in fact to an 'all-permutations
 
 (defgeneric locate-cycle (nodes-lst &optional kw order res))
 (defmethod locate-cycle ((nodes-lst list) &optional kw order res)
-  (if (< (length nodes-lst) 3)
-      (ordinate res #'> :key #'length)
-      (if (equalp (caar nodes-lst) (cadar nodes-lst))
-	  (locate-cycle (cdr nodes-lst) kw order res)
-	  (let ((tmp (list (car nodes-lst))))
-	    (loop for i in (cdr nodes-lst)
-	       do
-		 (when
-		     (and
-		      (not (equalp (car i) (cadr i)))
-		      (node= (car tmp) i :arcs 21)
-		      (loop for n in tmp never (node= n i :arcs 22))
-		      (not (node= (car tmp) (car (last tmp)) :arcs 21)))
-		   (push i tmp)))
-	    (if (and
-		 (if (and (integerp order) (> order 2))
-		     (= (length tmp) order)
-		     (> (length tmp) 2))
-		 (node= (car tmp) (car (last tmp)) :arcs 21))
-		(locate-cycle (rem-sublst tmp nodes-lst) kw order (cons (reverse tmp) res))
-		(locate-cycle (cdr nodes-lst) kw order res))))))
+  ;;------------------------------------
+  ;; hack to detect cycle in a list and return the cycle if so ...
+  (if (eq kw :in-list)
+      (loop for i from 1 to (ceiling (/ (length nodes-lst) 2))
+	    until (loop for a in nodes-lst for b in (nthcdr i nodes-lst) always (equalp a b))
+	    finally (when (<= i (floor (/ (length nodes-lst) 2))) (return (subseq nodes-lst 0 i))))
+  ;;------------------------------------
+      (if (< (length nodes-lst) 3)
+	  (ordinate res #'> :key #'length)
+	  (if (equalp (caar nodes-lst) (cadar nodes-lst))
+	      (locate-cycle (cdr nodes-lst) kw order res)
+	      (let ((tmp (list (car nodes-lst))))
+		(loop for i in (cdr nodes-lst)
+		      do
+			 (when
+			     (and
+			      (not (equalp (car i) (cadr i)))
+			      (node= (car tmp) i :arcs 21)
+			      (loop for n in tmp never (node= n i :arcs 22))
+			      (not (node= (car tmp) (car (last tmp)) :arcs 21)))
+			   (push i tmp)))
+		(if (and
+		     (if (and (integerp order) (> order 2))
+			 (= (length tmp) order)
+			 (> (length tmp) 2))
+		     (node= (car tmp) (car (last tmp)) :arcs 21))
+		    (locate-cycle (rem-sublst tmp nodes-lst) kw order (cons (reverse tmp) res))
+		    (locate-cycle (cdr nodes-lst) kw order res)))))))
 
 (defmethod locate-cycle ((nodes-lst hash-table) &optional kw order res)
-  (if (keywordp kw)
+  (if kw
       (let ((tmp (locate-cycle (ht nodes-lst :k) kw order res)))
 	(values
 	 tmp
@@ -613,4 +624,27 @@ Note that each list of durations is scaled such as sum of durations is equal to 
       (loop for j from (1+ i) to (1- (length a)) do
 	   (push (list i j (differential-vector (nth i a) (nth j a) :result result :opt opt :thres thres :ended ended :tolerance tolerance :cluster cluster)) r)))))
 
+;;;  ;  ;;  ; ; ;; ; ; ; ;   ;
+
+(defvar *CHECK-FILE* (concatenate 'string *NEUROMUSE3-DIRECTORY* "bin/check-file"))
+
+(defun check-file (file kw &optional res)
+  (unwind-protect 
+       (if (open file :if-does-not-exist nil)
+	   (case kw
+	     (:seq 
+	      (let ((tn (pathname-type (pathname file)))) 
+		(cond ((equalp tn "seq")
+		       (UIOP:run-program (format nil "sh -c '~S ~S ~S'" *CHECK-FILE* file *N3-BACKUP-DIRECTORY*))
+		       (let ((var (remove-duplicates (loop for i in (flatten (read-file (concatenate 'string *N3-BACKUP-DIRECTORY* ".tmp.var"))) unless (boundp i) collect i)))
+			     (net (remove-duplicates (loop for i in (flatten (read-file (concatenate 'string *N3-BACKUP-DIRECTORY* ".tmp.net"))) unless (boundp i) collect i))))
+			 (when var (push `(warn "Unbound variable(s) ~{~S ~}" ',var) res))
+			 (when net (push `(warn "Unbound network(s) ~{~S ~}" ',net) res))
+			 ))))))
+	   (warn "This file does not exist.")))
+  (UIOP:delete-file-if-exists (concatenate 'string *N3-BACKUP-DIRECTORY* ".tmp.var"))
+  (UIOP:delete-file-if-exists (concatenate 'string *N3-BACKUP-DIRECTORY* ".tmp.net"))
+  res)
+
 ;------------------------------------------------------------------
+

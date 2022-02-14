@@ -15,10 +15,9 @@
     (setf (symbol-value sym) content)
     sym))
 
-(defgeneric id (self))
-(defmethod id ((self list)) self)
-(defmethod id ((self number)) self)
-(defmethod id ((self t)) (when (boundp self) (symbol-value self)))
+(defgeneric id (self)
+  (:method (self) self)
+  (:method ((self symbol)) (when (boundp self) (symbol-value self))))
 
 ;------------------------------------------------------------------
 ;                                                            NEURON             

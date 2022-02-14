@@ -173,7 +173,7 @@ nil = check if e1 and e2 are in common one node;
 	    (setf (mct self) '()
 		  (fanaux-list self) nfl
 		  (fanaux-length area) (replace-a (length nfl) (position self (loop for i in (soms-list area) collect (id i)) :test #'equalp) (fanaux-length area))
-		  (gethash ct (date-report self)) (format nil "---> #<EPOCH ~S> ~~%---> #<NFL ~a> ~~%---> #<OFL NIL>" (epoch self) nfl))))))
+		  (gethash ct (date-report self)) (format nil "#<EPOCH ~S> ~~%---> #<NFL ~a> ~~%---> #<OFL NIL>" (epoch self) (loop for i in nfl collect (ind (id i)))))))))
   (values))
 
 (defmethod update-fanaux ((self mlt) (n-fanaux null)))
@@ -191,11 +191,6 @@ nil = check if e1 and e2 are in common one node;
 (defgeneric ds-p (self)
   (:method ((self ds)) t)
   (:method ((self t)) nil))
-
-(defmethod init-som :after ((self mlt) (nbre-input integer) (nbre-neurons integer) &key carte topology field)
-  (declare (ignore nbre-input nbre-neurons carte topology field))
-  (setf (gethash (1+ (get-universal-time)) (date-report self)) (make-instance 'ds :dt :bypass))
-  (values self))
 
 (defvar *all-som* '())
  
@@ -472,7 +467,11 @@ as arcs forming the tournoi when self is MLT, then a = tournoi = T (as integer) 
 
 (defmethod next-event-probability ((head null) (self mlt) &key (result :eval) (remanence t) (compute #'rnd-weighted) opt)
   (declare (ignore head))
-  (let ((hist (all-tournoi self :order (cover-value self) :remanence remanence)))
+  (let ((hist (all-tournoi self
+			   ;; if remanence is an integer, this will set the order as the field tournoi required
+			   :order (if (and (integerp remanence) (> (abs remanence) 1)) (abs remanence) (cover-value self))
+			   ;; if positive remanence then remanence t, if negative remanence then remanence nil
+			   :remanence (or (and (integerp remanence) (> remanence 1)) (not (integerp remanence))))))
     (when hist
       (case result
 	(:prob (loop for i in (group-list hist self opt) collect (list (* 1.0 (cadr i)) (car i))))

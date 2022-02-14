@@ -11,10 +11,8 @@ rm $dir/.tmp.lisp
 
 # add-icon
 dirscript="$( cd -P "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-$dirscript/add-icns/SetCustomIcon $1 $dirscript/add-icns/N3.icns
-
-# TODO
-# add-icon on LINUX
+# https://github.com/mklement0/fileicon
+$dirscript/add-icns/fileicon set $1 $dirscript/add-icns/N3.icns
 
 # ---
 filename=$(basename $1)
