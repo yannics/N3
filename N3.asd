@@ -5,10 +5,10 @@
 (defsystem N3
   :name "N3"
   :author "Yann Ics"
-  :licence "Copyleft 2013/2021 - all wrongs reserved"
+  :licence "Copyleft 2013/2022 - all wrongs reserved"
   :maintainer "<by.cmsc@gmail.com>"
   :description "Neuromuse3 - <https://www.overleaf.com/read/wswcpgqntjrc>"
-  :version "3.0.17"
+  :version "3.0.18"
   :components ((:file "package")
       	       (:file "SOM")
 	       (:file "MLT")
@@ -16,10 +16,11 @@
 	       (:file "USER")
 	       (:file "SAVE")
 	       (:file "UDP")		
-               (:file "UTILS")
+                (:file "UTILS")
 	       (:file "CAH")
 	       (:file "analysis")
-	       #+openmcl(:file "sequencing")
+	       (:file "sequencing")
+	       (:file "copy")
 	       )
   )
 

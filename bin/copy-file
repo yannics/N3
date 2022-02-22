@@ -1,0 +1,8 @@
+#!/bin/bash
+
+dir=$(dirname $1)
+newname=`echo $2 | tr [:lower:] [:upper:]`
+name=`basename $1 | cut -f1 -d '.'`
+ext=`basename $1 | cut -f2 -d '.'`
+
+cat $1 | sed "s/$name/$newname/g" > $dir/$newname.$ext

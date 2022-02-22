@@ -274,7 +274,7 @@ funcs take a sequencing class as argument -- conventionally named self"
 			       (loop for ip in (dispatch-osc-out (osc-out self)) 
 				     do (send-udp (read-from-string (format nil "(\"/~S\" \"0\")" (read-from-string (remove #\/ (string (tag self)))))) (car ip) (cadr ip))))
 			      ((and (gethash 'subroutine-state (mem-cache self)) (member (gethash 'subroutine-type (mem-cache self)) '(:sustain :pedal))) nil)
-			      ((and (gethash 'subroutine-state (mem-cache self)) (sequencing-p (gethash 'subroutine (mem-cache self)))) (act-routine (gethash 'subroutine (mem-cache self)))) ;; (TODO) add cond IF (gethash 'subroutine (mem-cache self)) is running THEN listen port of (gethash 'subroutine (mem-cache self)) + send with the tag of self
+			      ((and (gethash 'subroutine-state (mem-cache self)) (sequencing-p (gethash 'subroutine (mem-cache self)))) (act-routine (gethash 'subroutine (mem-cache self)))) ;; [TODO] add cond IF (gethash 'subroutine (mem-cache self)) is running THEN listen port of (gethash 'subroutine (mem-cache self)) + send with the tag of self
 			      (t  (loop for ip in (dispatch-osc-out (osc-out self)) 
 					do
 					   (when (gethash 'subroutine-state (mem-cache self)) (incf (gethash 'subroutine-counter (mem-cache self))))
@@ -294,7 +294,7 @@ funcs take a sequencing class as argument -- conventionally named self"
 				  (t (sleep pulse)))
 			    (when (and (gethash 'subroutine-state (mem-cache self)) (= (length (buffer-out self)) (buffer-size self)))
 			      (setf (gethash 'subroutine-state (mem-cache self)) nil (pulse self) (gethash 'main-pulse (mem-cache self)))
-			      (when (sequencing-p (gethash 'subroutine (mem-cache self))) (kill-routine (gethash 'subroutine (mem-cache self))))))) ;; (TODO) IF listening port THEN stop sending 
+			      (when (sequencing-p (gethash 'subroutine (mem-cache self))) (kill-routine (gethash 'subroutine (mem-cache self))))))) ;; [TODO] IF listening port THEN stop sending 
 			(sleep *latency*))))
 
 (defun set-pulse (self pulse) (when (sequencing-p self)
@@ -304,12 +304,12 @@ funcs take a sequencing class as argument -- conventionally named self"
 
 #|
 subroutine attribute as key in (mem-cache self)
-- subroutine ---> other sequencing as subroutine (TODO) in set-routine, +routine+, (act-routine subroutine) if not running
+- subroutine ---> other sequencing as subroutine [TODO] in set-routine, +routine+, (act-routine subroutine) if not running
 - subroutine-pulse ---> pulse of the subroutine (pulse self) by default
 - subroutine-type ---> (:silent :rest :sustain :pedal :pattern)
 - subroutine-counter ---> nth through (pattern self)
 - subroutine-state ---> switch to subroutine when it is true
-- subroutine-lock ---> (TODO) according to the sync and/or until subroutine is completed
+- subroutine-lock ---> [TODO] according to the sync and/or until subroutine is completed
 - subroutine-as-learned ---> keep track of the key :as-learned for save function
 others
 - main-pulse ---> keep track of the main pulse i.e. routine
@@ -382,7 +382,7 @@ others
   (when (_threadp (gethash 'routine (mem-cache self)))
     (_kill-thread (gethash 'routine (mem-cache self)))
     (remhash 'routine (mem-cache self))
-    (when (and (listp message) (loop for i in message always (stringp i))) ;; (TODO) prepend tag ...
+    (when (and (listp message) (loop for i in message always (stringp i))) ;; [TODO] prepend tag ...
       (loop for ip in (dispatch-osc-out (osc-out self)) 
 	    do (send-udp message (car ip) (cadr ip)))))
   (setf (gethash 'outset (mem-cache self)) t
@@ -433,11 +433,31 @@ others
 	(format stream " (SETF (GETHASH 'COMPUTE (MEM-CACHE ~S)) (_MAKE-THREAD (ROUTINE ~S) ~S))" (dub self) (dub self) (dub self))))
     (UIOP:run-program (format nil "sh -c '~S ~S'" *UPDATE-SAVED-NET* path))))
 
-(defun load-seq (seq)
-  (let ((checked (check-file seq :seq)))
-    (if checked
-	(progn (mapcar #'eval checked) nil)
-	(progn (load seq) (format t "~45<~A[~A] ...~;... loaded ...~>~%" (name (car *all-sequencing*)) (dub (car *all-sequencing*)))))))
+;;; ;;    ;  ; ;  ;;; ;  ;;  ;;; ;;    ;
+
+(defvar *SCAN-SEQ* (concatenate 'string *NEUROMUSE3-DIRECTORY* "bin/scan-seq"))
+
+(defun scan-seq (file &optional res copy)
+  "<scan-seq> collect all net identified by the keyword :NET in a sequencing file, and all global variable wrapped between asterisks, 
+in order to warn if one of them is unbound."
+  (unwind-protect 
+       (if (open file :if-does-not-exist nil)
+	   (let ((tn (pathname-type (pathname file)))) 
+	     (cond ((equalp tn "seq")
+		    (UIOP:run-program (format nil "sh -c '~S ~S ~S'" *SCAN-SEQ* file *N3-BACKUP-DIRECTORY*))
+		    (let ((var (remove-duplicates (loop for i in (flatten (read-file (concatenate 'string *N3-BACKUP-DIRECTORY* ".tmp.var"))) unless (boundp i) collect i)))
+			  (net (remove-duplicates (loop for i in (flatten (read-file (concatenate 'string *N3-BACKUP-DIRECTORY* ".tmp.net"))) unless (boundp i) collect i))))
+		      (when var (push `(warn "Unbound variable(s) ~{~S ~}" ',var) res))
+		      (when net (push `(warn "Unbound network(s) ~{~S ~}" ',net) res))))))
+	   (warn "This file does not exist.")))
+  (UIOP:delete-file-if-exists (concatenate 'string *N3-BACKUP-DIRECTORY* ".tmp.var"))
+  (UIOP:delete-file-if-exists (concatenate 'string *N3-BACKUP-DIRECTORY* ".tmp.net"))
+  (if res
+      (progn (mapcar #'eval res) nil)
+      (progn (load file) (format t "~45<~A[~A] ...~;... ~A ...~>~%"
+				 (name (car *all-sequencing*))
+				 (dub (car *all-sequencing*))
+				 (if copy "copied" "loaded")))))
 
 (defun sequencing-menu ()
   (let* ((stdout (format nil "~a" (UIOP:run-program (format nil "sh -c 'cd ~S; for f in *.seq; do echo $f; done'" *N3-BACKUP-DIRECTORY*) :output :string)))
@@ -448,14 +468,14 @@ others
 	(format t "~%~A: ~A" (+ item-number 1) (nth item-number items)))
       (format t "~%Load (Type any key to escape): ")
       (let ((val (read)))
-	;;(TODO) add warning if already loaded or exist in *ALL-SEQUENCING* and do not load...
+	;; [TODO] add warning if already loaded or exist in *ALL-SEQUENCING* and do not load...
 	;; + warning if net is not loaded
 	(if (listp val)
 	    (loop for i in val do 
 	      (when (and (integerp i) (<= i (length items)) (> i 0))
-		(load-seq (concatenate 'string *N3-BACKUP-DIRECTORY* (string (car (split-symbol (nth (- i 1) items)))) ".seq"))))
+		(scan-seq (concatenate 'string *N3-BACKUP-DIRECTORY* (string (car (split-symbol (nth (- i 1) items)))) ".seq"))))
 	    (when (and (integerp val) (<= val (length items)) (> val 0))
-	      (load-seq (concatenate 'string *N3-BACKUP-DIRECTORY* (string (car (split-symbol (nth (- val 1) items)))) ".seq"))))))))
+	      (scan-seq (concatenate 'string *N3-BACKUP-DIRECTORY* (string (car (split-symbol (nth (- val 1) items)))) ".seq"))))))))
 
 ;------------------------------------------------------------------
 ;                                                           COMPUTE   
@@ -478,12 +498,12 @@ others
 	      (markov-chain self :net net :buffer (butlast buffer))))
 	(let ((nc (if buffer
 		      (next-event-probability (reverse (cons (funcall (rule self) self) buffer)) (id (net self)) :result :eval :remanence (remanence self) :opt :buffer :compute (odds self))
-		      ;; the first event does not depent of the rule ... (TODO) select from MLT onset ...
+		      ;; the first event does not depent of the rule ... [TODO] select from MLT onset ...
 		      (next-event-probability nil (id (net self)) :result :eval :remanence (remanence self) :compute (odds self)))))
 	  (if nc
 	      (push nc (buffer-out self))
 	      ;; if next-event-probability=nil remove oldest clique
-	      (markov-chain self :buffer (butlast buffer))))))
+	      (markov-chain self :buffer (butlast buffer)))))))
   
 ;;++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 (make-instance 'neuron :name 'neuron)

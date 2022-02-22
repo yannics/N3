@@ -52,7 +52,7 @@
     (append (make-list n :initial-element (car list)) (dupli (cdr list) n))))
 
 ;; multidimensional map quadrare
-;; TODO quadrare taking into account the field as list -- for now it takes only the first value ...
+;; [TODO] quadrare taking into account the field as list -- for now it takes only the first value ...
 (defgeneric quadrare (self nbre-neurons &key about topology))
 (defmethod quadrare ((self som) (nbre-neurons integer) &key about topology)
   (let* ((y '())

@@ -94,7 +94,7 @@
         when (equalp item i)
         collect position))
 
-(defun load-neural-network (nn &key only-area)
+(defun load-neural-network (nn &optional kw) ;; kw :only-area, :copy :copy-only-area
   "nn is a string meaning neural network.
    Just write full pathname of nn
    [for instance /User/.../FOO.area as string];
@@ -105,21 +105,21 @@
 		    (if (open tmpfile :if-does-not-exist nil)
 			tmpfile
 			(format nil "~A~A.area" *N3-BACKUP-DIRECTORY* nn)))
-		  nn))) 
+		  nn))
+	(sta (if (or (eq kw :copy) (eq kw :copy-only-area)) "copied" "loaded"))) 
     (if (open file :if-does-not-exist nil)
 	(let ((tn (pathname-type (pathname file)))
-	      (nn (pathname-name (pathname file))))
-	  ;;(TODO) add warning if already loaded or exist in *ALL-SOM* and *ALL-AREA*
-	  ;; + warning if net is not loaded when SOM/MLT
-	  (cond ((equalp tn "som") (if (member (read-from-string nn) *ALL-SOM* :test #'equalp)
+	      (nn (pathname-name (pathname file)))) 
+	  ;;[TODO] warning if net is not loaded when SOM/MLT
+	  (cond ((equalp tn "som") (if (member (id (read-from-string nn)) *ALL-SOM*)
 				       (warn "There is already a SOM called ~A in *ALL-SOM*. Consequently, this SOM has not been loaded." nn)
 				       (progn (load file)
-					      (format t "~45<~A.~(~a~) ...~;... loaded ...~>~%" nn tn))))
-		((equalp tn "area") (if only-area
-					(if (member (read-from-string nn) *ALL-AREA* :test #'equalp)
+					      (format t "~45<~A.~(~a~) ...~;... ~A ...~>~%" nn tn sta))))
+		((equalp tn "area") (if (or (eq kw :only-area) (eq kw :copy-only-area))
+					(if (member (id (read-from-string nn)) *ALL-AREA*)
 					    (warn "There is already an AREA called ~A in *ALL-AREA*. Consequently, this AREA has not been loaded." nn)
 					    (progn (load file)
-						   (format t "~45<~A.~(~a~) ...~;... loaded ...~>~%" nn tn)))
+						   (format t "~45<~A.~(~a~) ...~;... ~A ...~>~%" nn tn sta)))
 					(let* ((sl (let* ((in (open file))
 							  (out (format nil "~a~%" (read-line in)))) 
 						      #+openmcl (read-from-string (remove #\' (format nil "~S" (nth 5 (cadr (read-from-string out))))))
@@ -136,10 +136,10 @@
 					      (progn
 						(loop for s in sl do (load-neural-network (format nil "~A~S.som" dir s)))
 						(if (equalp (loop for l in il collect (if (null l) 0 l)) (loop for s in sl collect (length (fanaux-list (id s)))))
-						    (if (member (read-from-string nn) *ALL-AREA* :test #'equalp)
+						    (if (member (id (read-from-string nn)) *ALL-AREA*)
 							(warn "There is already an AREA called ~A in *ALL-AREA*. Consequently, this AREA has not been loaded." nn)
 							(progn (load file)
-							       (format t "~45<~A.~(~a~) ...~;... loaded ...~>~%" nn tn)))
+							       (format t "~45<~A.~(~a~) ...~;... ~A ...~>~%" nn tn sta)))
 						    (warn "There is no agreement between the fanaux-list of soms-list and the fanaux-length. This AREA can't be loaded.")))
 					      (warn "The file~A~{ ~A.som~} do~A not exist [at least in \"~A\"]. Consequently, this AREA can't be loaded." (if (= 1 (length lstest)) "" "s") (loop for i in lstest collect (nth i sl)) (if (= 1 (length lstest)) "es" "") (read-from-string dir)))))) 
 		(t (warn "This file is not identified as part of N3."))))

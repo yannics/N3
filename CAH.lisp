@@ -264,8 +264,7 @@ is replaced with replacement."
       (format t "Load (Type any key to escape): ")
       (let ((val (read))) 
 	(when (member val (loop for i from 1 to (length items) collect i))
-	  ;;(TODO) add warning if already loaded or exist
-	  ;; + warning if net is not loaded
+	  ;;[TODO] add warning if already loaded or exist + if net is not loaded
 	  (let ((dir (concatenate 'string *N3-BACKUP-DIRECTORY* (subseq (string (nth (- val 1) items)) 2 (- (length (string (nth (- val 1) items))) 4)) "tree")))
 	    (cond ((string= "STRUCTURE" (cadr (reverse (split-path dir))))
 		   (load (concatenate 'string  *N3-BACKUP-DIRECTORY* "structure/" (car (reverse (split-path dir)))))
