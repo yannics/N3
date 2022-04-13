@@ -32,48 +32,28 @@
 ;------------------------------------------------------------------
 ;                                                   LISTEN-PORT/UDP
 
-(defun int-char-p (c)
-  (if (find c ". 1 2 3 4 5 6 7 8 9 0 e E + -") t nil))
-
-(defun str-to-list (str)
-  (if (not (streamp str))
-      (let ((rrr (ignore-errors (str-to-list (make-string-input-stream str)))))
-	(when rrr rrr))
-      (if (listen str)
-	  (cons (read str) (str-to-list str))
-	  nil)))
-
-(defun read-string-msg (str)
-  "list only number from string"
-  (loop for n in (str-to-list (coerce (loop for i in (concatenate 'list (substitute #\space #\, str)) when (or (eq " " (string i)) (int-char-p i)) collect i) 'string)) when (numberp n) collect n))
-
-(defvar *data-buffer* nil)
-
-(defun osc-listen (port) 
+(defmacro osc-listen (port) 
   #+sbcl
   (let ((s (make-instance 'sb-bsd-sockets::inet-socket 
-              :type :datagram :protocol :udp))
-        (buffer (make-sequence '(vector (unsigned-byte 8)) 1024)))
+			  :type :datagram :protocol :udp))
+        (buffer (make-sequence '(vector (unsigned-byte 8)) 1024))
+	(var (intern (format nil "*~a*" port))))
     (sb-bsd-sockets::socket-bind s (sb-bsd-sockets::make-inet-address "127.0.0.1") port)
-    (unwind-protect 
-     (loop do
-	  (sb-bsd-sockets::socket-receive s buffer nil)    
-	  (push (let ((msg (funcall *decode-bundle* buffer)))
-		  ;(list (car msg) (read-string-msg (cadr msg)))
-		  msg) *data-buffer*))
-      (when s (sb-bsd-sockets::socket-close s))))
+    `(unwind-protect 
+	 (loop do
+	   (sb-bsd-sockets::socket-receive ,s ,buffer nil)
+	   (defparameter ,var (funcall *decode-bundle* ,buffer)))
+      (when ,s (sb-bsd-sockets::socket-close ,s))))
   #+openmcl
   (let ((s (ccl:make-socket :local-port port
 			    :type :datagram
-			    :format :binary)))
-    (unwind-protect 
+			    :format :binary))
+	(var (intern (format nil "*~a*" port))))
+    `(unwind-protect 
 	 (loop do
-	      (push (let ((msg (funcall *decode-bundle* (ccl:receive-from s 2048))))
-		      ;(list (car msg) (read-string-msg (cadr msg)))
-		      msg) *data-buffer*))
-      (when s (close S)))))
+	   (defparameter ,var (funcall *decode-bundle* (ccl:receive-from ,s 2048))))
+      (when ,s (close ,s)))))
 
 ;; (defparameter listen-port-7771 (ccl:process-run-function "listen-port-7771" #'(lambda () (osc-listen 7771))))
 ;; (defparameter listen-port-7773 (sb-thread:make-thread #'(lambda () (osc-listen 7773)) :name "listen-port-7773"))
 ;------------------------------------------------------------------
-

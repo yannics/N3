@@ -23,7 +23,7 @@
 	  (arcs self) (make-hash-table :test #'equalp))
     (loop for i in (soms-list self) do (reset-mlt (id i)))))
 
-(defun is-in-n3-backup-directory? (name ext &optionanl (dir *N3-BACKUP-DIRECTORY*))
+(defun is-in-n3-backup-directory? (name ext &optional (dir *N3-BACKUP-DIRECTORY*))
   (let ((std (string-to-list (string-trim '(#\Space #\Tab #\Newline) (with-output-to-string (out) (UIOP:run-program (format nil "sh -c 'basename -as .~A `ls ~A*.~A`'" ext dir ext) :output out))))))
     (member (read-from-string (string name)) std)))
 

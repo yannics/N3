@@ -39,7 +39,7 @@
    (rule
     :initform nil :initarg :rule :accessor rule)
    (tag
-    :initform "N3" :initarg :tag :accessor tag)
+    :initform '/N3 :initarg :tag :accessor tag)
    (meter
     :initform 4 :initarg :meter :accessor meter :type number)
    (remanence
@@ -96,7 +96,7 @@
     (when buffer-thres (setf (buffer-thres seq) buffer-thres))
     (when pulse (setf (pulse seq) pulse))
     (when pattern (setf (pattern seq) pattern))
-    (when tag (setf (tag seq) (read-from-string (string dub))))
+    (when tag (setf (tag seq) (read-from-string (string tag))))
     (when meter (setf (meter seq) meter))
     (when remanence (setf (remanence seq) remanence))
     (when odds (setf (odds seq) odds))
@@ -139,6 +139,9 @@
     (cond ((and (_threadp (gethash 'routine (mem-cache self))) (_thread-zombie (gethash 'routine (mem-cache self)))) (format t "~&;routine -> thread zombie ~S" (gethash 'routine (mem-cache self))))
 	  ((and (_threadp (gethash 'routine (mem-cache self))) (not (_thread-zombie (gethash 'routine (mem-cache self))))) (format t "~&;routine -> thread running ~S" (gethash 'routine (mem-cache self))))
 	  (t (format t "~&;routine -> thread NIL")))
+    (cond ((and (_threadp (gethash 'osc-listen (mem-cache self))) (_thread-zombie (gethash 'osc-listen (mem-cache self)))) (format t "~&;osc-listen -> thread zombie ~S" (gethash 'osc-listen (mem-cache self))))
+	  ((and (_threadp (gethash 'osc-listen (mem-cache self))) (not (_thread-zombie (gethash 'osc-listen (mem-cache self))))) (format t "~&;osc-listen -> thread running ~S" (gethash 'osc-listen (mem-cache self))))
+	  (t (format t "~&;osc-listen -> thread NIL")))
     (when (sequencing-p (gethash 'subroutine (mem-cache self)))
       (format t "~&;SUBROUTINE")
       (check-thread (gethash 'subroutine (mem-cache self)) nil))))
@@ -241,7 +244,7 @@ funcs take a sequencing class as argument -- conventionally named self"
 	   (setf (routine ,self)
 		 (lambda* (self)
 		   (loop do
-		     (when (< (length (buffer-out self)) (buffer-size self)) ,@funcs)
+		     (when (<= (length (buffer-out self)) (buffer-size self)) ,@funcs)
 		     (sleep *latency*)))
 		 (gethash 'compute (mem-cache ,self))
 		 (_make-thread (routine ,self) ,self))
@@ -283,7 +286,7 @@ funcs take a sequencing class as argument -- conventionally named self"
 					     (format nil "(\"/~S\" \"~S\" ~{\"~S\"~})"
 						     (read-from-string (remove #\/ (string (tag self))))
 						     (if (gethash 'subroutine-state (mem-cache self)) 2 1)
-						     (append (flatten (bo self :trn)) (list pulse)))) 
+						     (append (bo self) (list pulse)))) 
 					    (car ip) (cadr ip))
 					   (setf (gethash 'last-event (mem-cache self)) (list (bo self))))))
 			    ;;------------------------------------
@@ -317,6 +320,7 @@ others
 - compute ---> thread
 - routine ---> thread +routine+ when act
 - routine-initform ---> +routine+
+- osc-listen ---> thread (osc-listen (osc-in self))
 ;;[TODO-SYNC]
 - outset ---> when sync
 - beat-counter ---> when sync
@@ -335,13 +339,17 @@ others
   (loop for i in self always (test-clique clique i :as-nodes as-nodes)))
 
 (defun set-subroutine (self &key is pulse (with (pattern self)) (as-learned t) (print t))
-  (when (and (sequencing-p self) (or (null is) (member is '(:silent :rest :sustain :pedal :pattern))))
+  (when (and (sequencing-p self) (or (null is) (member is '(:silent :rest :sustain :pedal :pattern :function))))
     (if (or (eq is :pattern) (eq (gethash 'subroutine-type (mem-cache self)) :pattern))
 	(cond ((sequencing-p (id with)) (setf (gethash 'subroutine (mem-cache self)) (id with)))
 	      ((and (listp with) (test-clique with self :as-nodes as-learned)) (setf (pattern self) with))
 	      ((and (listp with) (not (test-clique with self :as-nodes as-learned))) (error "Invalid list of cliques ..."))
 	      (with (error "The keyword :with requires a sequencing as subroutine or a list of events as cliques ...")))
-	(remhash 'subroutine (mem-cache self)))
+	(if (or (eq is :function) (eq (gethash 'subroutine-type (mem-cache self)) :function))
+	    (if (ml? with)
+		(progn (funcall with self) (setf (gethash 'subroutine (mem-cache self)) with))
+		(error "The keyword :with requires a lambda* function ..."))
+	    (remhash 'subroutine (mem-cache self))))
     (setf
      (gethash 'subroutine-type (mem-cache self)) (if is is (if (gethash 'subroutine-type (mem-cache self)) (gethash 'subroutine-type (mem-cache self)) :SILENT))
      (gethash 'subroutine-counter (mem-cache self)) 0
@@ -355,12 +363,15 @@ others
 	      (gethash 'subroutine-as-learned (mem-cache self))
 	      (if (and (eq (gethash 'subroutine-type (mem-cache self)) :pattern) (sequencing-p (gethash 'subroutine (mem-cache self))))
 		  (name (gethash 'subroutine (mem-cache self)))
-		  (when (pattern self) (format nil "(PATTERN ~S)" (dub self))))))))
+		  (if (and (eq (gethash 'subroutine-type (mem-cache self)) :function) (ml? (gethash 'subroutine (mem-cache self))))
+		      (gethash 'subroutine (mem-cache self))
+		      (when (pattern self) (format nil "(PATTERN ~S)" (dub self)))))))))
 
 ;; (set-subroutine *voice1* :is :silent) ;; default value (:is optional if it is :silent or :rest)
 ;; (set-subroutine *voice1* :is :pattern :pulse 1) ;; it supposes (pattern self) as a list of cliques (:pulse optional only when it is different of the main pulse)
 ;; (set-subroutine *voice1* :is :pattern :with <list-of-cliques> :pulse 1 :as-learned nil) ;; (:pulse optional only when it is different of the main pulse, and :as-learned optional only if it is nil)
 ;; (set-subroutine *voice1* :is :pattern :with <sequencing> :pulse 1) ;; (:pulsed optional ...)
+;; (set-subroutine *voice1* :is :function :with (lambda* (self) ...)) 
 
 ;; ---> N3D ++++++++++++++++++++
 ;; (require 'N3D)
@@ -423,13 +434,14 @@ others
 			  (eq s (read-from-string "BUFFER-OUT")))
 		      (format stream ""))
 		     ((or (eq 'SYMBOL (type-of (id val)))
+			  (eq 'SYMBOL (type-of val))
 			  (eq s (read-from-string "DUB"))
 			  (and (listp val) (not (null val))))
 		      (format stream " :~S (QUOTE ~S)" s val))
 		     (t (format stream " :~S ~S" s val)))))
 	(format stream ") N3::*ALL-SEQUENCING*)")
 	(format stream " (DEFVAR ~S (CAR *ALL-SEQUENCING*))" (dub self))
-	(format stream " (SET-SUBROUTINE ~S :IS ~S :PULSE ~S :WITH ~A :AS-LEARNED ~S :PRINT NIL)" (dub self) (gethash 'subroutine-type (mem-cache self)) (gethash 'subroutine-pulse (mem-cache self)) (if (sequencing-p (gethash 'subroutine (mem-cache self))) (gethash 'subroutine (mem-cache self)) (when (pattern self) (format nil "(PATTERN ~S)" (dub self)))) (gethash 'subroutine-as-learned (mem-cache self)))
+	(format stream " (SET-SUBROUTINE ~S :IS ~S :PULSE ~S :WITH ~A :AS-LEARNED ~S :PRINT NIL)" (dub self) (gethash 'subroutine-type (mem-cache self)) (gethash 'subroutine-pulse (mem-cache self)) (if (sequencing-p (gethash 'subroutine (mem-cache self))) (gethash 'subroutine (mem-cache self)) (if (ml? (gethash 'subroutine (mem-cache self))) (format nil "~S" (ml! (gethash 'subroutine (mem-cache self)))) (format nil "(PATTERN ~S)" (dub self)))) (gethash 'subroutine-as-learned (mem-cache self)))
 	(format stream " (SETF (GETHASH 'COMPUTE (MEM-CACHE ~S)) (_MAKE-THREAD (ROUTINE ~S) ~S))" (dub self) (dub self) (dub self))))
     (UIOP:run-program (format nil "sh -c '~S ~S'" *UPDATE-SAVED-NET* path))))
 
@@ -446,12 +458,15 @@ in order to warn if one of them is unbound."
 	     (cond ((equalp tn "seq")
 		    (UIOP:run-program (format nil "sh -c '~S ~S ~S'" *SCAN-SEQ* file *N3-BACKUP-DIRECTORY*))
 		    (let ((var (remove-duplicates (loop for i in (flatten (read-file (concatenate 'string *N3-BACKUP-DIRECTORY* ".tmp.var"))) unless (boundp i) collect i)))
-			  (net (remove-duplicates (loop for i in (flatten (read-file (concatenate 'string *N3-BACKUP-DIRECTORY* ".tmp.net"))) unless (boundp i) collect i))))
+			  (net (remove-duplicates (loop for i in (flatten (read-file (concatenate 'string *N3-BACKUP-DIRECTORY* ".tmp.net"))) unless (boundp i) collect i)))
+			  (pak (remove 'n3 (remove-duplicates (loop for i in (flatten (read-file (concatenate 'string *N3-BACKUP-DIRECTORY* ".tmp.pak"))) unless (boundp i) collect i)))))
 		      (when var (push `(warn "Unbound variable(s) ~{~S ~}" ',var) res))
-		      (when net (push `(warn "Unbound network(s) ~{~S ~}" ',net) res))))))
+		      (when net (push `(warn "Unbound network(s) ~{~S ~}" ',net) res))
+		      (when pak (push `(warn "Package~p ~{~a~#[~;, and ~:;, ~]~} required!" (length ',pak) ',pak) res))))))
 	   (warn "This file does not exist.")))
   (UIOP:delete-file-if-exists (concatenate 'string *N3-BACKUP-DIRECTORY* ".tmp.var"))
   (UIOP:delete-file-if-exists (concatenate 'string *N3-BACKUP-DIRECTORY* ".tmp.net"))
+  (UIOP:delete-file-if-exists (concatenate 'string *N3-BACKUP-DIRECTORY* ".tmp.pak"))
   (if res
       (progn (mapcar #'eval res) nil)
       (progn (load file) (format t "~45<~A[~A] ...~;... ~A ...~>~%"

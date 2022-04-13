@@ -8,7 +8,7 @@ refname="+$rootname+"
 
 awk '{for (I=1;I<NF;I++) if ($I == ":NET") print $(I+1)}' $1 > $dir/.tmp.net
 
-cat $1 | sed "s/(/\ /g;s/)/\ /g;s/  */\ /g;s/\*/+/g" > $dir/.tmp
+cat $1 | sed "s/(/\ /g;s/)/\ /g;s/  */\ /g;s/\*/+/g;s/\'/\ /g" > $dir/.tmp
 
 IFS=$' ' read -r -a arr < $dir/.tmp
 
@@ -19,4 +19,9 @@ do
  	    echo $item | sed "s/+/\*/g" >> $dir/.tmp.var
     fi
 done
-rm $dir/.tmp
+
+cat $dir/.tmp | sed "s/\'/\ /g" | grep -o '[^ ]*\:' > $dir/.tmp.1
+
+cat .tmp.1 | sed "s/\://g" | tr "\\n" " " | sed 's/  */\ /g' > $dir/.tmp.pak
+
+rm $dir/.tmp $dir/.tmp.1
