@@ -22,6 +22,6 @@ done
 
 cat $dir/.tmp | sed "s/\'/\ /g" | grep -o '[^ ]*\:' > $dir/.tmp.1
 
-cat .tmp.1 | sed "s/\://g" | tr "\\n" " " | sed 's/  */\ /g' > $dir/.tmp.pak
+cat $dir/.tmp.1 | sed "s/\://g" | tr "\\n" " " | sed 's/  */\ /g' > $dir/.tmp.pak
 
 rm $dir/.tmp $dir/.tmp.1

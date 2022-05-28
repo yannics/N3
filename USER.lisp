@@ -176,7 +176,7 @@ When the final value is superior to initial value, the function becomes increasi
 ;------------------------------------------------------------------
 ;                      compute function (-> next-event-probability)        
 
-;; one argument (probability-list) ...
+;; one argument (probability-list) and key exclude ; exclude is a list of item(s)
 #|
 The problist has to be well-formed:
 (
@@ -188,15 +188,45 @@ with sum of weight(i) = 1.0
 |#
 ;(assert (= 1 (loop for i in (mapcar #'cadr problist) sum i)))
 
-(defun rnd-weighted (problist &key (r '(0)))
-  (loop for i in (mapcar #'cadr problist) do (push (+ (car r) i) r))
-  (let ((res (nth (1- (length (loop for i in (reverse r) while (> (- 1 (random 1.0)) i) collect i))) problist)))
-    (values (car res) (cadr res))))
+(defun drop-element (e set)
+  (cond ((null set) '())
+	((equal e (first set)) (rest set))
+	(t (cons (first set) (drop-element e (rest set))))))   
+                      
+(defun complementary (subset set &optional kw)
+  (if (eq kw :set)
+      (loop for i in set unless (member i subset :test #'equalp) collect i)
+      (cond ((null subset) set)
+	    ((member (first subset) set)
+	     (complementary (rest subset) (drop-element (first subset) set)))
+	    (t (complementary (rest subset) set)))))
 
-(defun max-weighted (problist &key exclude) ; exclude is a list of item(s)
-  (let ((nproblist (remove nil (if (and exclude (listp exclude)) (loop for it in problist collect (when (not (member (car it) exclude :test #'equalp)) it)) problist))))
+(defun rnd-equal (problist &key exclude)
+  (let ((x (complementary exclude (mapcar #'car problist) :set)))
+    (values (nth (random (length x)) x) (/ 1 (length x)))))
+
+(defun rnd-weighted (problist &key exclude)
+  (let (nproblist (r '(0)))
+    (if exclude
+	(let ((npl (loop for i in problist unless (member (car i) exclude :test #'equalp) collect i)))
+	  (setf nproblist (mapcar #'list (mapcar #'car npl) (normalize-sum (mapcar #'cadr npl)))))
+	(setf nproblist problist))
+    (loop for i in (mapcar #'cadr nproblist) do (push (+ (car r) i) r))
+    (let ((res (nth (1- (length (loop for i in (reverse r) while (> (- 1 (random 1.0)) i) collect i))) nproblist)))
+      (values (car res) (cadr res)))))
+
+(defun max-weighted (problist &key exclude)
+  (let ((nproblist (remove nil (if exclude (loop for it in problist collect (when (not (member (car it) exclude :test #'equalp)) it)) problist))))
     (if nproblist
       (let* ((al (ordinate (mat-trans (list (car (mat-trans nproblist)) (normalize-sum (cadr (mat-trans nproblist))))) #'> :key #'cadr))
+	     (tmp (cons (car al) (loop for i in (cdr al) until (< (cadr i) (cadr (car al))) collect i)))
+	     (res (nth (random (length tmp)) tmp)))
+	(values (car res) (cadr res))))))
+
+(defun min-weighted (problist &key exclude)
+  (let ((nproblist (remove nil (if exclude (loop for it in problist collect (when (not (member (car it) exclude :test #'equalp)) it)) problist))))
+    (if nproblist
+      (let* ((al (ordinate (mat-trans (list (car (mat-trans nproblist)) (normalize-sum (cadr (mat-trans nproblist))))) #'< :key #'cadr))
 	     (tmp (cons (car al) (loop for i in (cdr al) until (< (cadr i) (cadr (car al))) collect i)))
 	     (res (nth (random (length tmp)) tmp)))
 	(values (car res) (cadr res))))))

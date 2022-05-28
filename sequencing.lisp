@@ -3,6 +3,17 @@
 
 (in-package :N3)
 
+;; ---> N3D ++++++++++++++++++++
+;; (require 'N3D)
+(defvar *remanence* 3)
+(defun rnd-item (lst) (nth (random (length lst)) lst))
+(defmethod pick-experiment ((self list)) (rnd-item self))
+(defmethod pick-other-experience ((self list) (exp list))
+  (let ((tmp (pick-experiment self)))
+    (loop until (not (loop for i in tmp for j in exp always (if (eq '? j) t (= i j)))) do (setf tmp (pick-experiment self)))
+    tmp))
+;;++++++++++++++++++++++++++++++
+
 ;------------------------------------------------------------------
 ;                                                             CLOCK   
 
@@ -134,7 +145,7 @@
 	    ((and (_threadp ++clock++) (not (_thread-zombie ++clock++))) (format t ";clock -> thread running ~S" ++clock++))
 	    (t (format t ";clock -> thread NIL"))))
     (cond ((and (_threadp (gethash 'compute (mem-cache self))) (_thread-zombie (gethash 'compute (mem-cache self)))) (format t "~&;compute -> thread zombie ~S" (gethash 'compute (mem-cache self))))
-	  ((and (_threadp (gethash 'compute (mem-cache self))) (not (_thread-zombie (gethash 'compute (mem-cache self))))) (format t "~&;compute -> thread running (buffer-out is ~S) ~S" (if (= (buffer-size self) (length (buffer-out self))) 'filled 'filling...) (gethash 'compute (mem-cache self))))
+	  ((and (_threadp (gethash 'compute (mem-cache self))) (not (_thread-zombie (gethash 'compute (mem-cache self))))) (format t "~&;compute -> thread running (buffer-out is ~S) ~S" (if (>= (length (buffer-out self)) (buffer-size self)) 'filled 'filling...) (gethash 'compute (mem-cache self))))
 	  (t (format t "~&;compute -> thread NIL")))
     (cond ((and (_threadp (gethash 'routine (mem-cache self))) (_thread-zombie (gethash 'routine (mem-cache self)))) (format t "~&;routine -> thread zombie ~S" (gethash 'routine (mem-cache self))))
 	  ((and (_threadp (gethash 'routine (mem-cache self))) (not (_thread-zombie (gethash 'routine (mem-cache self))))) (format t "~&;routine -> thread running ~S" (gethash 'routine (mem-cache self))))
@@ -156,16 +167,18 @@
     (when (test-clique self clique)
       (loop for i in clique for n in (soms-list self) collect (xpos (id (nth i (fanaux-list (id n)))))))))
 
-(defgeneric clique>trn (self)
-  (:method ((self sequencing))
-    (let ((prev (if (gethash 'last-event (mem-cache self)) (gethash 'last-event (mem-cache self)) (last (buffer-out self)))))
-      (append prev (subseq (reverse (buffer-out self)) 0 2)))))
+(defgeneric clique>trn (self &key order previous)
+  (:documentation "The key :previous takes an integer as the number of past event(s) (kind of short term memory size),
+ and the :order minus previous plus one is about anticipation from computed cliques stored in the buffer-out.
+Knowing that, :previous can't be superior to the :order.")
+  (:method ((self sequencing) &key (order (remanence self)) (previous 1))
+    (let ((ord (if (integerp order) order (cond ((and (net self) (remanence self)) *remanence*) ((integerp (remanence self)) (remanence self)) (t 1)))))
+      (append (reverse (complist (gethash 'last-event (mem-cache self)) previous nil)) (complist (reverse (buffer-out self)) (- ord previous) nil)))))
   
 (defgeneric bo (self &optional ind buf)
   (:documentation "return the clique to send, 
 <ind> as interger from 1 to the length of the clique returns the value at this <ind> position, 
-<ind> as the keyword :pos returns the position of the clique in the area.
-<ind> as the keyword :trn returns the tournoi of order 3 of the current clique.")
+<ind> as the keyword :xpos returns the position of the clique in the area.")
   (:method ((self sequencing) &optional ind buf)
     (cond
       ((and (pattern self) (eq (gethash 'subroutine-type (mem-cache self)) :pattern) (not (sequencing-p (id (gethash 'subroutine (mem-cache self))))) (gethash 'subroutine-state (mem-cache self)))
@@ -176,9 +189,7 @@
     (cond ((integerp ind) (nth (1- ind) buf))
 	  ((and (eq ind :xpos) (area-p (id (net self))))
 	   (clique>xpos (id (net self)) buf))
-	  ((and (eq ind :trn) (area-p (id (net self))))
-	   (clique>trn self))
-	  (t buf))))
+	  (t (append buf (flatten (list! (gethash 'message (mem-cache self)))))))))
 
 ;;------------------------------------
 (defvar +beat+ 1)
@@ -275,7 +286,7 @@ funcs take a sequencing class as argument -- conventionally named self"
 			    (cond
 			      ((and (gethash 'subroutine-state (mem-cache self)) (member (gethash 'subroutine-type (mem-cache self)) '(:silent :rest)))
 			       (loop for ip in (dispatch-osc-out (osc-out self)) 
-				     do (send-udp (read-from-string (format nil "(\"/~S\" \"0\")" (read-from-string (remove #\/ (string (tag self)))))) (car ip) (cadr ip))))
+				     do (send-udp (read-from-string (format nil "(\"/~S\" \"0\" ~{\"~S\"~})" (read-from-string (remove #\/ (string (tag self)))) (list! (gethash 'message (mem-cache self))))) (car ip) (cadr ip))))
 			      ((and (gethash 'subroutine-state (mem-cache self)) (member (gethash 'subroutine-type (mem-cache self)) '(:sustain :pedal))) nil)
 			      ((and (gethash 'subroutine-state (mem-cache self)) (sequencing-p (gethash 'subroutine (mem-cache self)))) (act-routine (gethash 'subroutine (mem-cache self)))) ;; [TODO] add cond IF (gethash 'subroutine (mem-cache self)) is running THEN listen port of (gethash 'subroutine (mem-cache self)) + send with the tag of self
 			      (t  (loop for ip in (dispatch-osc-out (osc-out self)) 
@@ -288,7 +299,9 @@ funcs take a sequencing class as argument -- conventionally named self"
 						     (if (gethash 'subroutine-state (mem-cache self)) 2 1)
 						     (append (bo self) (list pulse)))) 
 					    (car ip) (cadr ip))
-					   (setf (gethash 'last-event (mem-cache self)) (list (bo self))))))
+					   (push (bo self) (gethash 'last-event (mem-cache self)))
+					   (when (> (length (gethash 'last-event (mem-cache self))) (cond ((and (net self) (remanence self)) *remanence*) ((integerp (remanence self)) (remanence self)) (t 1)))
+					     (setf (gethash 'last-event (mem-cache self)) (butlast (gethash 'last-event (mem-cache self))))))))
 			    ;;------------------------------------
 			    (unless (gethash 'subroutine-state (mem-cache self)) (setf (buffer-out self) (butlast (buffer-out self))))	     
 			    (cond ((and (gethash 'subroutine-state (mem-cache self)) (member (gethash 'subroutine-type (mem-cache self)) '(:silent :rest :sustain :pedal :pattern)) (sequencing-p (gethash 'subroutine (mem-cache self))))
@@ -321,6 +334,7 @@ others
 - routine ---> thread +routine+ when act
 - routine-initform ---> +routine+
 - osc-listen ---> thread (osc-listen (osc-in self))
+- message ---> optional message to send
 ;;[TODO-SYNC]
 - outset ---> when sync
 - beat-counter ---> when sync
@@ -371,17 +385,7 @@ others
 ;; (set-subroutine *voice1* :is :pattern :pulse 1) ;; it supposes (pattern self) as a list of cliques (:pulse optional only when it is different of the main pulse)
 ;; (set-subroutine *voice1* :is :pattern :with <list-of-cliques> :pulse 1 :as-learned nil) ;; (:pulse optional only when it is different of the main pulse, and :as-learned optional only if it is nil)
 ;; (set-subroutine *voice1* :is :pattern :with <sequencing> :pulse 1) ;; (:pulsed optional ...)
-;; (set-subroutine *voice1* :is :function :with (lambda* (self) ...)) 
-
-;; ---> N3D ++++++++++++++++++++
-;; (require 'N3D)
-(defun rnd-item (lst) (nth (random (length lst)) lst))
-(defmethod pick-experiment ((self list)) (rnd-item self))
-(defmethod pick-other-experience ((self list) (exp list))
-  (let ((tmp (pick-experiment self)))
-    (loop until (not (loop for i in tmp for j in exp always (if (eq '? j) t (= i j)))) do (setf tmp (pick-experiment self)))
-    tmp))
-;;++++++++++++++++++++++++++++++
+;; (set-subroutine *voice1* :is :function :with (lambda* (self) ...)) ;; allows to keep track of the generating function or to generate new data when it is loaded or set.
 
 ;------------------------------------------------------------------
 ;                                                              PLAY   
@@ -389,10 +393,11 @@ others
 (defgeneric kill-routine (self &key message)) ;; message is a list of string to send via (osc-out self)
 (defgeneric act-routine (self))
 
-(defmethod kill-routine ((self sequencing) &key (message (read-from-string (format nil "(\"/~S\" \"0\")" (read-from-string (remove #\/ (string (tag self))))))))
+(defmethod kill-routine ((self sequencing) &key message)
   (when (_threadp (gethash 'routine (mem-cache self)))
     (_kill-thread (gethash 'routine (mem-cache self)))
     (remhash 'routine (mem-cache self))
+    (unless message (setf message (read-from-string (format nil "(\"/~S\" \"0\")" (read-from-string (remove #\/ (string (tag self))))))))
     (when (and (listp message) (loop for i in message always (stringp i))) ;; [TODO] prepend tag ...
       (loop for ip in (dispatch-osc-out (osc-out self)) 
 	    do (send-udp message (car ip) (cadr ip)))))
@@ -407,7 +412,7 @@ others
     (if (functionp (gethash 'routine-initform (mem-cache self))) (setf (gethash 'routine (mem-cache self)) (_make-thread (gethash 'routine-initform (mem-cache self)) self)) (error "No assigned function! use > (set-routine &progn funcs)"))
   (format t "~S is playing on:~&" (name self))
   (dispatch-osc-out (osc-out self) :verbose t)
-  (format t "TAG: /~A" (read-from-string (remove #\/ (string (tag self)))))
+  (format t "TAG: /~A~&" (read-from-string (remove #\/ (string (tag self)))))
   (gethash 'routine (mem-cache self)))
 
 ;------------------------------------------------------------------
@@ -459,7 +464,7 @@ in order to warn if one of them is unbound."
 		    (UIOP:run-program (format nil "sh -c '~S ~S ~S'" *SCAN-SEQ* file *N3-BACKUP-DIRECTORY*))
 		    (let ((var (remove-duplicates (loop for i in (flatten (read-file (concatenate 'string *N3-BACKUP-DIRECTORY* ".tmp.var"))) unless (boundp i) collect i)))
 			  (net (remove-duplicates (loop for i in (flatten (read-file (concatenate 'string *N3-BACKUP-DIRECTORY* ".tmp.net"))) unless (boundp i) collect i)))
-			  (pak (remove 'n3 (remove-duplicates (loop for i in (flatten (read-file (concatenate 'string *N3-BACKUP-DIRECTORY* ".tmp.pak"))) unless (boundp i) collect i)))))
+			  (pak (loop for p in (remove-duplicates (loop for i in (flatten (read-file (concatenate 'string *N3-BACKUP-DIRECTORY* ".tmp.pak"))) unless (boundp i) collect i)) unless (find-package (read-from-string (string p))) collect p)))
 		      (when var (push `(warn "Unbound variable(s) ~{~S ~}" ',var) res))
 		      (when net (push `(warn "Unbound network(s) ~{~S ~}" ',net) res))
 		      (when pak (push `(warn "Package~p ~{~a~#[~;, and ~:;, ~]~} required!" (length ',pak) ',pak) res))))))
@@ -484,7 +489,6 @@ in order to warn if one of them is unbound."
       (format t "~%Load (Type any key to escape): ")
       (let ((val (read)))
 	;; [TODO] add warning if already loaded or exist in *ALL-SEQUENCING* and do not load...
-	;; + warning if net is not loaded
 	(if (listp val)
 	    (loop for i in val do 
 	      (when (and (integerp i) (<= i (length items)) (> i 0))
@@ -494,6 +498,9 @@ in order to warn if one of them is unbound."
 
 ;------------------------------------------------------------------
 ;                                                           COMPUTE   
+
+;; USER SPACE
+;; built here your needed routine function
 
 (defgeneric markov-chain (self &key net buffer)
   (:method ((self sequencing) &key net buffer)

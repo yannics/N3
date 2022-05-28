@@ -72,6 +72,17 @@ For now tree has to be the node root."
   (cond ((zerop int) (apply #'concatenate (cons 'string res)))
 	((zerop (cadr (multiple-value-list (floor int 26)))) (int2letter (1- (floor (/ int 26))) (push "Z" res)))
 	(t (int2letter (floor (/ int 26)) (push (write-to-string (nth (cadr (multiple-value-list (floor (1- int) 26))) *letters*)) res)))))
+;;- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+(defgeneric alpha-seq (self tree n-class data)
+  (:method ((self som) (tree node) (n-class integer) (data list))
+    (let ((htpa (make-hash-table :test #'equalp)))
+      (let ((sl (ordinate (trim-tree self tree n-class) #'> :key #'length)))
+	(loop for cl in sl for x from 1
+	      do
+		 (loop for pos in cl
+		       do 
+			  (setf (gethash pos htpa) (int2letter x)))))
+      (loop for i in data collect (read-from-string (gethash i htpa))))))
 ;;------------------------------------------------------------------
 ;; expand/compress allow to manage original sequence and 'smoothed' sequence (i.e. local duplicates removed)
 (defgeneric expand (alphanum &key root))
@@ -274,17 +285,6 @@ For now tree has to be the node root."
 	  for d = 2 then (if (evenp d) (+ d 1) (+ d 2)) do
 	  (cond ((> d max-d) (return (list n))) ; n is prime
 		((zerop (rem n d)) (return (cons d (factor (truncate n d)))))))))
-
-(defun drop-element (e set)
-  (cond ((null set) '())
-	((equal e (first set)) (rest set))
-	(t (cons (first set) (drop-element e (rest set))))))   
-                      
-(defun complementary (subset set)
-  (cond ((null subset) set)
-	((member (first subset) set)
-	 (complementary (rest subset) (drop-element (first subset) set)))
-	(t (complementary (rest subset) set))))
 
 (defun 2list (l)
   (mapcar #'list (list-module (length l) t) l))
@@ -513,21 +513,60 @@ which lengths are successive values of the list <segmentation>.
       (loop for i in lw when (equalp (butlast i) head) collect i)
       lw))
 
-(defmethod next-event-probability ((head list) (seq list) &key (result :verbose) remanence (compute #'rnd-weighted) opt)
-  (declare (ignore remanence opt))
-  (let* ((lw (get-match head (loop-wind seq (1+ (length head)))))
-	 (rh (history lw))
+(defmethod next-event-probability ((head list) (seq list) &key (result :eval) remanence (compute #'rnd-weighted) opt)
+  (declare (ignore opt))
+  ;; [TODO] add wild card on head + check about singleton in :verbose and :eval
+  (let* ((lw (if (eq remanence :corpus) t (get-match head (loop-wind seq (1+ (length head))))))
+	 (rh (if (eq remanence :corpus)
+		(group-by (flat-once (loop for i in seq collect (next-event-probability head i :result :history))))
+		(history lw)))
 	 (ord (ordinate (mapcar #'list (mapcar #'car rh) (normalize-sum (mapcar #'cadr rh))) #'> :key #'cadr))) 
     (case result
-      (:prob (mapcar #'reverse ord))
+      (:history ord)
+      (:prob (loop for i in ord collect (list (cadr i) (car (last (car i))))))
       (:verbose (loop for i in ord do
-		     (format t "~@<~S => ~3I~_~,6f %~:>~%" (if (singleton (car i)) (caar i) (car i)) (* 100 (float (cadr i))))))
+		     (format t "~@<~S => ~3I~_~,6f %~:>~%" (car (last (if (singleton (car i)) (caar i) (car i)))) (* 100 (float (cadr i))))))
       (:eval (when lw
-	       (multiple-value-bind (a b) (funcall compute ord)
+	       (multiple-value-bind (a b) (funcall compute (loop for i in ord collect (list (car (last (car i))) (cadr i))))
 		 (values
 		  (if (singleton a) (car a) a) ;; the result itself 
-		  ;(length rh)                 ;; number of potential candidat
-		  b)))))))                     ;; probability of the selected candidat
+		  ;(length rh)                ;; number of potential candidat
+		  b)))))))                   ;; probability of the selected candidat
+
+(defun group-by (lst &optional r)
+  (dolist (e (remove-duplicates lst :test #'equalp :key #'car) r)
+    (push (list (car e) (loop for i in lst when (equalp (car e) (car i)) sum (cadr i))) r)))
+
+(defun loop-sum (seq tot &optional (thres 0))
+  (if (zerop thres)
+      (remove nil (maplist #'(lambda (x) (loop for i in x while (> tot tsum) sum i into tsum collect i into res finally (return (when (= tsum tot) res)))) seq))
+      (error "with thres not yet implemented!...")))
+
+(defmethod next-event-probability ((head integer) (seq list) &key (result :eval) remanence (compute #'rnd-weighted) opt)
+  (when (or (eq opt :wind) (eq opt :sum) (numberp opt))
+    (let* ((lw (cond
+		 ((and (null remanence) (eq opt :wind)) (loop-wind seq head))
+		 ((and (null remanence) (or (numberp opt) (eq opt :sum))) (loop-sum seq head (if (numberp opt) opt 0)))
+		 (t t)))
+	   (rh
+	    (if (eq remanence :corpus)
+		(group-by (flat-once (loop for i in seq collect (next-event-probability head i :result :history :opt opt :remanence nil))))
+		(history lw)))
+	   (ord (ordinate (mapcar #'list (mapcar #'car rh) (normalize-sum (mapcar #'cadr rh))) #'> :key #'cadr))) 
+      (case result
+	(:history rh)
+	(:prob (mapcar #'reverse ord))
+	(:verbose (loop for i in ord do
+		       (format t "~@<~S => ~3I~_~,6f %~:>~%" (if (singleton (car i)) (caar i) (car i)) (* 100 (float (cadr i))))))
+	(:eval (when lw
+		 (multiple-value-bind (a b) (funcall compute ord)
+		   (values
+		    (if (singleton a) (car a) a) ;; the result itself 
+		    ;(length rh)                 ;; number of potential candidat
+		    b))))))))                    ;; probability of the selected candidat
+
+(defmethod next-event-probability ((head t) (seq null) &key result remanence compute opt)
+  (declare (ignore head seq result remanence compute opt)))
 
 ;;------------------------------------------------------------------
 

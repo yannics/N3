@@ -54,3 +54,24 @@ Evaluation took:
 (108413167 690006323)
 -------------------------------------------------------------
 |#
+
+(defun next-prime (n &key or-this)
+  (if (and or-this (is-prime n))
+      n
+      (when (integerp n)
+	(if (> n 1)
+	    (if (is-prime (1+ n))
+		(1+ n)
+		(next-prime (1+ n)))
+	    2))))
+
+(defun prev-prime (n &key or-this)
+  (if (and or-this (is-prime n))
+      n
+      (when (and (integerp n) (<= 2 n))
+	(if (is-prime (1- n))
+	    (1- n)
+	    (prev-prime (1- n))))))
+
+;;------------------------------------------------------------------
+
