@@ -3,17 +3,6 @@
 
 (in-package :N3)
 
-;; ---> N3D ++++++++++++++++++++
-;; (require 'N3D)
-(defvar *remanence* 3)
-(defun rnd-item (lst) (nth (random (length lst)) lst))
-(defmethod pick-experiment ((self list)) (rnd-item self))
-(defmethod pick-other-experience ((self list) (exp list))
-  (let ((tmp (pick-experiment self)))
-    (loop until (not (loop for i in tmp for j in exp always (if (eq '? j) t (= i j)))) do (setf tmp (pick-experiment self)))
-    tmp))
-;;++++++++++++++++++++++++++++++
-
 ;------------------------------------------------------------------
 ;                                                             CLOCK   
 
@@ -33,6 +22,8 @@
     :initform "" :initarg :description :accessor description :type string)
    (net
     :initform nil :initarg :net :accessor net)
+   (corpus
+    :initform nil :initarg :corpus :accessor corpus)
    (buffer-in
     :initform nil :initarg :buffer-in :accessor buffer-in :type list)
    (buffer-out
@@ -138,6 +129,7 @@
 ;------------------------------------------------------------------
 ;                                                   DEBUGGING TOOLS   
 
+#|
 (defgeneric check-thread (self &optional clock)
   (:method ((self sequencing) &optional (clock t))
     (when clock 
@@ -156,6 +148,46 @@
     (when (sequencing-p (gethash 'subroutine (mem-cache self)))
       (format t "~&;SUBROUTINE")
       (check-thread (gethash 'subroutine (mem-cache self)) nil))))
+|#
+
+(defun check-thread (&optional sequencing only)
+  (if sequencing
+      (if (sequencing-p sequencing)
+	  (let ((self sequencing))
+	    (format t "~&;------------------------~&; ~S" (dub self))
+	    ;;-------------
+	    (cond ((and (_threadp (gethash 'compute (mem-cache self))) (_thread-zombie (gethash 'compute (mem-cache self))))
+		   (format t "~&;compute -> thread zombie ~S" (gethash 'compute (mem-cache self))))
+		  ((and (_threadp (gethash 'compute (mem-cache self))) (not (_thread-zombie (gethash 'compute (mem-cache self))))) (format t "~&;compute -> thread running (buffer-out is ~S) ~S" (if (>= (length (buffer-out self)) (buffer-size self)) 'filled 'filling...) (gethash 'compute (mem-cache self))))
+		  (t
+		   (format t "~&;compute -> thread NIL")))
+	    ;;-------------	    
+	    (cond ((and (_threadp (gethash 'routine (mem-cache self))) (_thread-zombie (gethash 'routine (mem-cache self))))
+		   (format t "~&;routine -> thread zombie ~S" (gethash 'routine (mem-cache self))))
+		  ((and (_threadp (gethash 'routine (mem-cache self))) (not (_thread-zombie (gethash 'routine (mem-cache self)))))
+		   (format t "~&;routine -> thread running ~S" (gethash 'routine (mem-cache self))))
+		  (t
+		   (format t "~&;routine -> thread NIL")))
+	    ;;-------------
+	    (cond ((and (_threadp (gethash 'osc-listen (mem-cache self))) (_thread-zombie (gethash 'osc-listen (mem-cache self))))
+		   (format t "~&;osc-listen -> thread zombie ~S" (gethash 'osc-listen (mem-cache self))))
+		  ((and (_threadp (gethash 'osc-listen (mem-cache self))) (not (_thread-zombie (gethash 'osc-listen (mem-cache self)))))
+		   (format t "~&;osc-listen -> thread running ~S" (gethash 'osc-listen (mem-cache self))))
+		  (t
+		   (format t "~&;osc-listen -> thread NIL")))
+	    ;;-------------
+	    (unless only
+	      (when (sequencing-p (gethash 'subroutine (mem-cache self)))
+		(format t "~&;SUBROUTINE")
+		(check-thread (gethash 'subroutine (mem-cache self))))))
+	  (error "~S is not a sequencing!" sequencing))
+      (progn
+	(cond ((and (_threadp ++clock++) (_thread-zombie ++clock++)) (format t ";clock -> thread zombie ~S" ++clock++))
+	      ((and (_threadp ++clock++) (not (_thread-zombie ++clock++))) (format t ";clock -> thread running ~S" ++clock++))
+	      (t (format t ";clock -> thread NIL")))	
+	(loop for self in *all-sequencing*
+	      do
+		 (check-thread self t)))))
 
 ;------------------------------------------------------------------
 ;                                                               SET   
@@ -181,7 +213,7 @@ Knowing that, :previous can't be superior to the :order.")
 <ind> as the keyword :xpos returns the position of the clique in the area.")
   (:method ((self sequencing) &optional ind buf)
     (cond
-      ((and (pattern self) (eq (gethash 'subroutine-type (mem-cache self)) :pattern) (not (sequencing-p (id (gethash 'subroutine (mem-cache self))))) (gethash 'subroutine-state (mem-cache self)))
+      ((and (pattern self) (or (eq (gethash 'subroutine-type (mem-cache self)) :pattern) (eq (gethash 'subroutine-type (mem-cache self)) :function)) (not (sequencing-p (id (gethash 'subroutine (mem-cache self))))) (gethash 'subroutine-state (mem-cache self)))
        (setf buf (nth (mod (gethash 'subroutine-counter (mem-cache self)) (length (pattern self))) (pattern self)))) 
       ((and (eq (gethash 'subroutine-type (mem-cache self)) :pattern) (sequencing-p (gethash 'subroutine (mem-cache self))) (gethash 'subroutine-state (mem-cache self)))
        (setf buf (car (last (buffer-out (gethash 'subroutine (mem-cache self)))))))
@@ -304,7 +336,7 @@ funcs take a sequencing class as argument -- conventionally named self"
 					     (setf (gethash 'last-event (mem-cache self)) (butlast (gethash 'last-event (mem-cache self))))))))
 			    ;;------------------------------------
 			    (unless (gethash 'subroutine-state (mem-cache self)) (setf (buffer-out self) (butlast (buffer-out self))))	     
-			    (cond ((and (gethash 'subroutine-state (mem-cache self)) (member (gethash 'subroutine-type (mem-cache self)) '(:silent :rest :sustain :pedal :pattern)) (sequencing-p (gethash 'subroutine (mem-cache self))))
+			    (cond ((and (gethash 'subroutine-state (mem-cache self)) (member (gethash 'subroutine-type (mem-cache self)) '(:silent :rest :sustain :pedal :pattern :function)) (sequencing-p (gethash 'subroutine (mem-cache self))))
 				   (loop until (and (not (gethash 'subroutine-lock (mem-cache self))) (= (length (buffer-out self)) (buffer-size self))) do (sleep *latency*))
 				   (setf (gethash 'subroutine-state (mem-cache self)) nil))
 				  (t (sleep pulse)))
@@ -354,14 +386,14 @@ others
 
 (defun set-subroutine (self &key is pulse (with (pattern self)) (as-learned t) (print t))
   (when (and (sequencing-p self) (or (null is) (member is '(:silent :rest :sustain :pedal :pattern :function))))
-    (if (or (eq is :pattern) (eq (gethash 'subroutine-type (mem-cache self)) :pattern))
+    (if (eq is :pattern)
 	(cond ((sequencing-p (id with)) (setf (gethash 'subroutine (mem-cache self)) (id with)))
 	      ((and (listp with) (test-clique with self :as-nodes as-learned)) (setf (pattern self) with))
 	      ((and (listp with) (not (test-clique with self :as-nodes as-learned))) (error "Invalid list of cliques ..."))
 	      (with (error "The keyword :with requires a sequencing as subroutine or a list of events as cliques ...")))
-	(if (or (eq is :function) (eq (gethash 'subroutine-type (mem-cache self)) :function))
+	(if (eq is :function)
 	    (if (ml? with)
-		(progn (funcall with self) (setf (gethash 'subroutine (mem-cache self)) with))
+		(setf (pattern self) (funcall with self) (gethash 'subroutine (mem-cache self)) with)
 		(error "The keyword :with requires a lambda* function ..."))
 	    (remhash 'subroutine (mem-cache self))))
     (setf
@@ -387,23 +419,68 @@ others
 ;; (set-subroutine *voice1* :is :pattern :with <sequencing> :pulse 1) ;; (:pulsed optional ...)
 ;; (set-subroutine *voice1* :is :function :with (lambda* (self) ...)) ;; allows to keep track of the generating function or to generate new data when it is loaded or set.
 
+(defgeneric set-corpus (self corpus &optional opt))
+
+(defmethod set-corpus ((self sequencing) (corpus string) &optional opt) ;; specific name
+  (declare (ignore opt))
+  (let* ((var (intern (format nil "+~A+" (remove #\* (string (dub self))))))
+	 (file (if (zerop (length (directory-namestring (pathname corpus))))
+		   (format nil "~Adata/~A.corpus" *N3-BACKUP-DIRECTORY* corpus)
+		   (expand-path (namestring corpus))))	  	
+	 (data (when (probe-file (pathname file)) (read-file file))))
+    (if data
+	(progn
+	  (eval `(defparameter ,var ',data))
+	  (setf (remanence self) :corpus
+		(corpus self) file))
+	(warn "~A does not exist!" file)))) 
+
+(defmethod set-corpus ((self sequencing) (corpus pathname) &optional opt) ;; specific path
+  (declare (ignore opt))
+  (set-corpus self (pathname (expand-path (namestring corpus)))))
+
+(defmethod set-corpus ((self sequencing) (corpus symbol) &optional opt) ;; default path with default name
+  (declare (ignore opt))
+  (when (eq :load corpus)
+    (set-corpus self (format nil "~Adata/~A.corpus" *N3-BACKUP-DIRECTORY* (remove #\* (string (dub self))))))) ;; remove full path *N3-BACKUP-DIRECTORY*
+
+(defmethod set-corpus ((self sequencing) (corpus list) &optional opt) ;; data list /!\ this will overwrite the default corpus file
+  (let ((file (if opt
+		  (if (zerop (length (directory-namestring (pathname opt))))
+		      (format nil "~Adata/~A.corpus" *N3-BACKUP-DIRECTORY* opt)
+		      (expand-path (namestring opt)))
+		  (format nil "~Adata/~A.corpus" *N3-BACKUP-DIRECTORY* (remove #\* (string (dub self)))))))
+    (>data-file file corpus))
+  (set-corpus self :load))
+	  
+(defmethod set-corpus ((self sequencing) (corpus fn-with-code) &optional opt) ;; from lambda* function with self as argument
+  (set-corpus self (funcall corpus self) opt))
+
+(defmethod set-corpus :after ((self sequencing) (corpus fn-with-code) &optional opt) ;; reset corpus 
+  (declare (ignore opt))
+  (setf (corpus self) (ml! corpus)))
+
+(defmethod next-event-probability ((head integer) (seq sequencing) &key result remanence compute opt)
+  (when (eq :corpus remanence) (next-event-probability head (symbol-value (read-from-string (format nil "N3::+~A+" (remove #\* (string (dub seq)))))) :result result :remanence :corpus :compute compute :opt opt)))
+
 ;------------------------------------------------------------------
 ;                                                              PLAY   
 
 (defgeneric kill-routine (self &key message)) ;; message is a list of string to send via (osc-out self)
 (defgeneric act-routine (self))
 
-(defmethod kill-routine ((self sequencing) &key message)
+(defmethod kill-routine ((self sequencing) &key message iskilled)
   (when (_threadp (gethash 'routine (mem-cache self)))
     (_kill-thread (gethash 'routine (mem-cache self)))
     (remhash 'routine (mem-cache self))
     (unless message (setf message (read-from-string (format nil "(\"/~S\" \"0\")" (read-from-string (remove #\/ (string (tag self))))))))
     (when (and (listp message) (loop for i in message always (stringp i))) ;; [TODO] prepend tag ...
       (loop for ip in (dispatch-osc-out (osc-out self)) 
-	    do (send-udp message (car ip) (cadr ip)))))
+	    do (send-udp message (car ip) (cadr ip))))
+    (setf iskilled t))
   (setf (gethash 'outset (mem-cache self)) t
 	(gethash 'beat-counter (mem-cache self)) 0)
-  nil)
+  (when iskilled (format t "~S disconnected ...~&" (dub self))))
 
 (defmethod act-routine ((self sequencing))
   (kill-routine self)
@@ -446,15 +523,17 @@ others
 		     (t (format stream " :~S ~S" s val)))))
 	(format stream ") N3::*ALL-SEQUENCING*)")
 	(format stream " (DEFVAR ~S (CAR *ALL-SEQUENCING*))" (dub self))
+	(when (eq :corpus (remanence self))
+	  (format stream " (SET-CORPUS ~S :LOAD)" (dub self)))
 	(format stream " (SET-SUBROUTINE ~S :IS ~S :PULSE ~S :WITH ~A :AS-LEARNED ~S :PRINT NIL)" (dub self) (gethash 'subroutine-type (mem-cache self)) (gethash 'subroutine-pulse (mem-cache self)) (if (sequencing-p (gethash 'subroutine (mem-cache self))) (gethash 'subroutine (mem-cache self)) (if (ml? (gethash 'subroutine (mem-cache self))) (format nil "~S" (ml! (gethash 'subroutine (mem-cache self)))) (format nil "(PATTERN ~S)" (dub self)))) (gethash 'subroutine-as-learned (mem-cache self)))
-	(format stream " (SETF (GETHASH 'COMPUTE (MEM-CACHE ~S)) (_MAKE-THREAD (ROUTINE ~S) ~S))" (dub self) (dub self) (dub self))))
+	(when (routine self) (format stream " (SETF (GETHASH 'COMPUTE (MEM-CACHE ~S)) (_MAKE-THREAD (ROUTINE ~S) ~S))" (dub self) (dub self) (dub self)))))
     (UIOP:run-program (format nil "sh -c '~S ~S'" *UPDATE-SAVED-NET* path))))
 
 ;;; ;;    ;  ; ;  ;;; ;  ;;  ;;; ;;    ;
 
 (defvar *SCAN-SEQ* (concatenate 'string *NEUROMUSE3-DIRECTORY* "bin/scan-seq"))
 
-(defun scan-seq (file &optional res copy)
+(defun scan-seq (file &optional res copy refname)
   "<scan-seq> collect all net identified by the keyword :NET in a sequencing file, and all global variable wrapped between asterisks, 
 in order to warn if one of them is unbound."
   (unwind-protect 
@@ -462,6 +541,7 @@ in order to warn if one of them is unbound."
 	   (let ((tn (pathname-type (pathname file)))) 
 	     (cond ((equalp tn "seq")
 		    (UIOP:run-program (format nil "sh -c '~S ~S ~S'" *SCAN-SEQ* file *N3-BACKUP-DIRECTORY*))
+		    (setf refname (car (flatten (read-file (concatenate 'string *N3-BACKUP-DIRECTORY* ".refname")))))
 		    (let ((var (remove-duplicates (loop for i in (flatten (read-file (concatenate 'string *N3-BACKUP-DIRECTORY* ".tmp.var"))) unless (boundp i) collect i)))
 			  (net (remove-duplicates (loop for i in (flatten (read-file (concatenate 'string *N3-BACKUP-DIRECTORY* ".tmp.net"))) unless (boundp i) collect i)))
 			  (pak (loop for p in (remove-duplicates (loop for i in (flatten (read-file (concatenate 'string *N3-BACKUP-DIRECTORY* ".tmp.pak"))) unless (boundp i) collect i)) unless (find-package (read-from-string (string p))) collect p)))
@@ -472,12 +552,15 @@ in order to warn if one of them is unbound."
   (UIOP:delete-file-if-exists (concatenate 'string *N3-BACKUP-DIRECTORY* ".tmp.var"))
   (UIOP:delete-file-if-exists (concatenate 'string *N3-BACKUP-DIRECTORY* ".tmp.net"))
   (UIOP:delete-file-if-exists (concatenate 'string *N3-BACKUP-DIRECTORY* ".tmp.pak"))
+  (UIOP:delete-file-if-exists (concatenate 'string *N3-BACKUP-DIRECTORY* ".refname"))
   (if res
       (progn (mapcar #'eval res) nil)
-      (progn (load file) (format t "~45<~A[~A] ...~;... ~A ...~>~%"
-				 (name (car *all-sequencing*))
-				 (dub (car *all-sequencing*))
-				 (if copy "copied" "loaded")))))
+      (if (boundp refname)
+	  (format t "~A[~A] already loaded!" (name (id refname)) (id refname))
+	  (progn (load file) (format t "~45<~A[~A] ...~;... ~A ...~>~%"
+				     (name (car *all-sequencing*))
+				     (dub (car *all-sequencing*))
+				     (if copy "copied" "loaded"))))))
 
 (defun sequencing-menu ()
   (let* ((stdout (format nil "~a" (UIOP:run-program (format nil "sh -c 'cd ~S; for f in *.seq; do echo $f; done'" *N3-BACKUP-DIRECTORY*) :output :string)))

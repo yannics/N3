@@ -15,7 +15,7 @@
 (defvar *NEUROMUSE3-DIRECTORY* (namestring (asdf:component-pathname (asdf:find-system "n3"))))
 
 (defvar *N3-BACKUP-DIRECTORY* (concatenate 'string (expand-path "~/Documents/") "neuromuse3-backup-networks/"))
-(ensure-directories-exist *N3-BACKUP-DIRECTORY*)
+(ensure-directories-exist (format nil "~Adata/" *N3-BACKUP-DIRECTORY*))
 
 ;++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 (defvar *gnuplot* nil)
@@ -174,9 +174,23 @@ When the final value is superior to initial value, the function becomes increasi
   (* initial-value (exp (/ epoch (/ learning-time (log (/ final-value initial-value)))))))
 
 ;------------------------------------------------------------------
-;                      compute function (-> next-event-probability)        
+;                                                   pick-experiment					
+;                 as computing function (-> next-event-probability)        
 
-;; one argument (probability-list) and key exclude ; exclude is a list of item(s)
+;; ---> N3D ++++++++++++++++++++
+;; (require 'N3D)
+(defvar *remanence* 3)
+(defun rnd-item (lst) (nth (random (length lst)) lst))
+(defmethod pick-experiment ((self list)) (rnd-item self))
+(defmethod pick-other-experience ((self list) (exp list))
+  (let ((tmp (pick-experiment self)))
+    (loop until (not (loop for i in tmp for j in exp always (if (eq '? j) t (= i j)))) do (setf tmp (pick-experiment self)))
+    tmp))
+;;++++++++++++++++++++++++++++++
+;; /!\ mind there are additional keys (type and exclude)
+;; one argument (probability-list)
+;; key type (concern only self as problist when is set) ---> :random, :weighted, :inverse-weighted, max-weighted, min-weighted
+;; key exclude ; exclude is a list of item(s)
 #|
 The problist has to be well-formed:
 (
@@ -187,6 +201,54 @@ The problist has to be well-formed:
 with sum of weight(i) = 1.0
 |#
 ;(assert (= 1 (loop for i in (mapcar #'cadr problist) sum i)))
+
+#|
+;; to debug 
+(defmethod pick-experiment ((self list) &key (type :weighted) exclude)
+    (let (nproblist (r '(0)))
+      (if exclude
+	  (let ((npl (loop for i in self unless (member (car i) exclude :test #'equalp) collect i)))
+	    (setf nproblist (mapcar #'list (mapcar #'car npl) (normalize-sum (mapcar #'cadr npl)))))
+	  (setf nproblist self))      
+      (case type
+	(:random 
+	 (values (car (nth (random (length nproblist)) nproblist)) (/ 1 (length nproblist))))
+	(:weighted 
+	 (loop for i in (mapcar #'cadr nproblist) do (push (+ (car r) i) r))
+	 (let ((res (nth (1- (length (loop for i in (reverse r) while (> (- 1 (random 1.0)) i) collect i))) nproblist)))
+	   (values (car res) (cadr res))))
+	(:inverse-weighted 
+	 (loop for i in (normalize-sum (loop for i in (mapcar #'cadr nproblist) collect (- 1.0 i))) do (push (+ (car r) i) r))
+	 (let ((res (nth (1- (length (loop for i in (reverse r) while (> (- 1 (random 1.0)) i) collect i))) nproblist)))
+	   (values (car res) (cadr res))))
+	(:max-weighted 
+	 (when nproblist
+	   (let* ((al (ordinate (mat-trans (list (car (mat-trans nproblist)) (cadr (mat-trans nproblist)))) #'> :key #'cadr))
+		  (tmp (cons (car al) (loop for i in (cdr al) until (< (cadr i) (cadr (car al))) collect i)))
+		  (res (nth (random (length tmp)) tmp)))
+	     (values (car res) (cadr res)))))
+	(:min-weighted 
+	 (when nproblist
+	   (let* ((al (ordinate (mat-trans (list (car (mat-trans nproblist)) (cadr (mat-trans nproblist)))) #'< :key #'cadr))
+		  (tmp (cons (car al) (loop for i in (cdr al) until (> (cadr i) (cadr (car al))) collect i)))
+		  (res (nth (random (length tmp)) tmp))) 
+	     (values (car res) (cadr res)))))
+	(otherwise
+	 (let ((res (rnd-item self)))
+	   (values res (/ 1 (length self))))))))
+
+(defmethod pick-other-experience ((self list) (exp list) &key type exclude)
+  ;; [TODO] output (values result prob)
+  (let ((tmp (pick-experiment self :type type :exclude exclude)))
+    ;; check if there is at least one possible result
+    (loop until (not (loop for i in tmp for j in exp always (if (eq '? j) t (= i j)))) do (setf tmp (pick-experiment self)))
+    tmp))
+;;++++++++++++++++++++++++++++++
+
+;; hack until rnd-weighted is replaced by pick-experiment in N3
+(defun rnd-weighted (problist &key exclude)
+(pick-experiment problist :type :weighted :exclude exclude))
+|#
 
 (defun drop-element (e set)
   (cond ((null set) '())
@@ -227,7 +289,7 @@ with sum of weight(i) = 1.0
   (let ((nproblist (remove nil (if exclude (loop for it in problist collect (when (not (member (car it) exclude :test #'equalp)) it)) problist))))
     (if nproblist
       (let* ((al (ordinate (mat-trans (list (car (mat-trans nproblist)) (normalize-sum (cadr (mat-trans nproblist))))) #'< :key #'cadr))
-	     (tmp (cons (car al) (loop for i in (cdr al) until (< (cadr i) (cadr (car al))) collect i)))
+	     (tmp (cons (car al) (loop for i in (cdr al) until (> (cadr i) (cadr (car al))) collect i)))
 	     (res (nth (random (length tmp)) tmp)))
 	(values (car res) (cadr res))))))
 

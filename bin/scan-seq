@@ -14,7 +14,7 @@ IFS=$' ' read -r -a arr < $dir/.tmp
 
 for item in "${arr[@]}"; 
 do
-    if [ "${item: -1}" = "+" ] && [ "${item:0:1}" = "+" ] && [ "$refname" != "$item" ]
+    if [ "${item: -1}" = "+" ] && [ "${item:0:1}" = "+" ] && [ "$refname" != "$item" ] && [ "+BEAT+" != "$item" ]
         then
  	    echo $item | sed "s/+/\*/g" >> $dir/.tmp.var
     fi
@@ -25,3 +25,5 @@ cat $dir/.tmp | sed "s/\'/\ /g" | grep -o '[^ ]*\:' > $dir/.tmp.1
 cat $dir/.tmp.1 | sed "s/\://g" | tr "\\n" " " | sed 's/  */\ /g' > $dir/.tmp.pak
 
 rm $dir/.tmp $dir/.tmp.1
+
+echo "*$rootname*" > $dir/.refname

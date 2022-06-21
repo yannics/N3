@@ -286,6 +286,19 @@ For now tree has to be the node root."
 	  (cond ((> d max-d) (return (list n))) ; n is prime
 		((zerop (rem n d)) (return (cons d (factor (truncate n d)))))))))
 
+#|
+(defun drop-element (e set)
+  (cond ((null set) '())
+	((equal e (first set)) (rest set))
+	(t (cons (first set) (drop-element e (rest set))))))   
+                      
+(defun complementary (subset set)
+  (cond ((null subset) set)
+	((member (first subset) set)
+	 (complementary (rest subset) (drop-element (first subset) set)))
+	(t (complementary (rest subset) set))))
+|#
+
 (defun 2list (l)
   (mapcar #'list (list-module (length l) t) l))
 
