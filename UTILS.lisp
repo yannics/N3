@@ -257,25 +257,29 @@ Note that the output is clipped if the range of input is largest than values of 
 
 ;;;; ;; ;;  ; ;;;  ;; ;  ; ; ; ;   ;
 
-(defun >data-file (path lst &key comment csv)
-  "Allows to write data file. 
-If needed it can be added a comment in first line started with:
-';' = LISP
-'#' = GNUPLOT
-..."
-  (with-open-file (stream (make-pathname :directory (pathname-directory path)
-					   :name (pathname-name path)
-					   :type (pathname-type path))
+(defun >data-file (path lst &key append out)
+  "Allows to write data file (lst) to a file (path)."
+  (let ((file (make-pathname
+	       :directory (pathname-directory path)
+	       :name (pathname-name path)
+	       :type (pathname-type path))))
+    (with-open-file (stream file
 			    :direction :output
-			    :if-exists :supersede
+			    :if-exists (if append :append :supersede)
 			    :if-does-not-exist :create)
-    (when comment (format stream "~A~&" comment))
-    (loop for i in lst
-       do
-	 (if csv
-	     (format stream "~{~S~^, ~}~%" (list! i))
-	     (format stream "~{~S ~}~%" (list! i))))))
+      (loop for i in lst
+	    do
+	       (case out
+		 (:csv (format stream "~{~S~^, ~}~%" (list! i)))
+		 (:sc (format stream "~a" (convert-list-to-array (list! i))))
+		 (otherwise (format stream "~{~S ~}~%" (list! i))))))))
 
+(defun df2sc (file &optional name)
+  "Convert <file> generated with (>data-file <path> <data> :out :sc) to a valid SuperCollider file,
+which can be interpreted as a global variable defind by <name> prepended with a tilde."
+  (let ((scdfile (namestring (make-pathname :directory (pathname-directory file) :name (if name (string name) (pathname-name file)) :type "scd"))))
+    (uiop:run-program (concatenate 'string "paste -s -d, " (namestring file) " | sed -e '1s/^/(~" (if name (string name) (pathname-name file)) " = [/' > " scdfile " ; echo '])' >> " scdfile))))
+  
 ;;; ;;    ;  ; ;  ;;; ;  ;;  ;;; ;;    ;
 
 (defgeneric >dot (self nodes)
@@ -434,13 +438,13 @@ Also, 'all-combinations' is a misnomer to refers in fact to an 'all-permutations
 			      (not (equalp (car i) (cadr i)))
 			      (node= (car tmp) i :arcs 21)
 			      (loop for n in tmp never (node= n i :arcs 22))
-			      (not (node= (car tmp) (car (last tmp)) :arcs 21)))
+			      (not (node= (car tmp) (carlast tmp) :arcs 21)))
 			   (push i tmp)))
 		(if (and
 		     (if (and (integerp order) (> order 2))
 			 (= (length tmp) order)
 			 (> (length tmp) 2))
-		     (node= (car tmp) (car (last tmp)) :arcs 21))
+		     (node= (car tmp) (carlast tmp) :arcs 21))
 		    (locate-cycle (rem-sublst tmp nodes-lst) kw order (cons (reverse tmp) res))
 		    (locate-cycle (cdr nodes-lst) kw order res)))))))
 
@@ -499,7 +503,7 @@ Also, 'all-combinations' is a misnomer to refers in fact to an 'all-permutations
 	 (let ((tmp (member (caar r) i)))
 	   (if tmp
 	       (unless (null (cdr tmp)) 
-                 (if (= (car (last tmp)) (car (last (car r))))
+                 (if (= (carlast tmp) (carlast (car r)))
                      (let ((ir (butlast (car r))))
                        (setf r (cdr r)) 
                        (push ir r)

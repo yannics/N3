@@ -149,6 +149,7 @@
   (:documentation "Initialisation of self organizing map"))
 
 (defvar SOM "Self Organizing Map")
+(defun carlast (lst) (car (last lst)))
 
 (defmethod init-som ((self som) (nbre-input integer) (nbre-neurons integer) &key carte topology field)
   (when carte (setf (carte self) carte))
@@ -165,7 +166,7 @@
 	    (neurons-list self)))
     (setf (nbre-neurons self) nn
 	  (nbre-input self) nbre-input
-	  (gethash (get-universal-time) (date-report self)) (format nil "(init-som #<RNA ~a> ~a ~a :carte #<FUNCTION ~a> :topology ~a :field ~a)" self nbre-input nbre-neurons (let ((mvl (multiple-value-list (function-lambda-expression (carte self))))) (cond ((listp (car (last mvl))) (format nil "~S" (if (ml? (carte self)) (ml! (carte self)) (carte self)))) (t (format nil "~S" (car (last mvl)))))) (topology self) (field self))
+	  (gethash (get-universal-time) (date-report self)) (format nil "(init-som #<RNA ~a> ~a ~a :carte #<FUNCTION ~a> :topology ~a :field ~a)" self nbre-input nbre-neurons (let ((mvl (multiple-value-list (function-lambda-expression (carte self))))) (cond ((listp (carlast mvl)) (format nil "~S" (if (ml? (carte self)) (ml! (carte self)) (carte self)))) (t (format nil "~S" (carlast mvl))))) (topology self) (field self))
 	  (ghost self) (make-instance 'neuron :name 'ghost :net (name self))))
   (values self))
 

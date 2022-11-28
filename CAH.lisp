@@ -324,7 +324,7 @@ if a = 1 --> single linkage
 		     (3 (cons (mk-diss i fn-diss :ward t) i)))))
 	 (result (reverse (assoc (loop for i in res minimize (car i)) res))))
     (list (butlast result)
-	  (rec-if (* -1 (car (last result)))))))
+	  (rec-if (* -1 (carlast result))))))
 
 (defun dendro (lst a fn-diss) 
   (let ((res (update-tree (aggregate lst a fn-diss) fn-diss)))
@@ -344,8 +344,8 @@ if a = 1 --> single linkage
   (setf (node-data (car *tree*)) (list (format nil "~S" self) aggregation
 				       (let ((mvl (multiple-value-list (function-lambda-expression diss-fun))))
 					 (cond
-					   ((listp (car (last mvl))) (format nil "~S" (if (ml? diss-fun) (source-of diss-fun) diss-fun)))				
-					   (t (format nil "~S" (car (last mvl))))))
+					   ((listp (carlast mvl)) (format nil "~S" (if (ml? diss-fun) (source-of diss-fun) diss-fun)))				
+					   (t (format nil "~S" (carlast mvl)))))
 				       (format nil "~S~S~S" aggregation (car *tree*) (epoch self))))
   (when newick
     (save (car *tree*))
@@ -370,7 +370,7 @@ For now tree has to be the node root."
 	(loop for i in nodes collect
 	     (let ((gl (mapcar #'node-data (get-leaves i))))
 	       (gravity-center gl +GA+)
-	       (car (last (car (nearest self +GA+ :n-list gl :diss-fun (caddr (node-data tree)))))))))))
+	       (carlast (car (nearest self +GA+ :n-list gl :diss-fun (caddr (node-data tree))))))))))
 
 (defmethod update-fanaux ((self mlt) (n-fanaux integer))
   (let* ((tree

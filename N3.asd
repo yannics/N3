@@ -9,7 +9,7 @@
   :licence "Copyleft 2013/2022 - all wrongs reserved"
   :maintainer "<by.cmsc@gmail.com>"
   :description "Neuromuse3 - <https://www.overleaf.com/read/wswcpgqntjrc>"
-  :version "3.0.21"
+  :version "3.0.22"
   :components ((:file "package")
       	       (:file "SOM")
 	       (:file "MLT")

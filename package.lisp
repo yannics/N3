@@ -43,7 +43,8 @@
 
 	   :*ALL-SEQUENCING*
 	   :CREATE-SEQUENCING
-	   :SET-PULSE
+	   :SET-CORPUS
+           :SET-PULSE
            :SET-RULE
            :SET-ROUTINE
            :SET-SUBROUTINE

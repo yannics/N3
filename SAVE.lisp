@@ -42,8 +42,8 @@
 			 ((functionp val) 
 			  (let ((mvl (multiple-value-list (function-lambda-expression val))))
 			    (cond
-			      ((listp (car (last mvl))) (format stream " :~S ~S" s (if (ml? val) (ml! val) val)))				
-			      (t (format stream " :~S #'~S" s (car (last mvl)))))))
+			      ((listp (carlast mvl)) (format stream " :~S ~S" s (if (ml? val) (ml! val) val)))				
+			      (t (format stream " :~S #'~S" s (carlast mvl))))))
 			 ((eq s (read-from-string "FANAUX-LIST")) (format stream " :FANAUX-LIST NIL"))
 			 ((eq s (read-from-string "GHOST")) (format stream " :GHOST (MAKE-INSTANCE (QUOTE N3::NEURON) :NAME (QUOTE GHOST) :NET (QUOTE ~S))" self))
 			 ((eq s (read-from-string "NEURON-GAGNANT")) (format stream " :NEURON-GAGNANT NIL"))

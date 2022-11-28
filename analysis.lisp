@@ -51,7 +51,7 @@ If needed add newline with #\Space in the data set."
 (defgeneric open-graph (self &key mlt w h scale fontsize gnuplot display))
 (defmethod open-graph ((self node) &key mlt (w 1200) (h 600) (scale 1) (fontsize 15) (gnuplot *gnuplot*) (display *display*))
   (declare (ignore mlt))
-  (let ((path (format nil "~A~A/~A/~A.dat" *N3-BACKUP-DIRECTORY* (car (node-data self)) (car (last (node-data self))) (car (node-data self)))))
+  (let ((path (format nil "~A~A/~A/~A.dat" *N3-BACKUP-DIRECTORY* (car (node-data self)) (carlast (node-data self)) (car (node-data self)))))
     (if (probe-file path)
 	(progn 
 	  (gnuplot> path :w w :h h :scale scale :fontsize fontsize :gnuplot gnuplot)
@@ -425,8 +425,8 @@ For now tree has to be the node root."
     (setf (node-data (car *tree*)) (list (format nil "*EVENT*") aggregation
 					 (let ((mvl (multiple-value-list (function-lambda-expression diss-fun))))
 					 (cond
-					   ((listp (car (last mvl))) (format nil "~S" (if (ml? diss-fun) (source-of diss-fun) diss-fun)))				
-					   (t (format nil "~S" (car (last mvl))))))
+					   ((listp (carlast mvl)) (format nil "~S" (if (ml? diss-fun) (source-of diss-fun) diss-fun)))				
+					   (t (format nil "~S" (carlast mvl)))))
 					 (format nil "~S~S" aggregation (car *tree*))))
     (when and-data (save (car *tree*)))
     
@@ -470,17 +470,20 @@ which lengths are successive values of the list <segmentation>.
   (let ((list2 lst) (res nil))
     (catch 'gl
       (loop for segment in segmentation
-	 while (or list2 (eq mode 'circular))
+	 while (or list2 (eq mode :circular))
 	 do (push (loop for i from 1 to segment
 		     when (null list2)
 		     do (ecase mode
-			  (linear (push sublist res) (throw 'gl 0))
-			  (circular (setf list2 lst)))
+			  (:linear (push sublist res) (throw 'gl 0))
+			  (:circular (setf list2 lst)))
 		     end
 		     collect (pop list2) into sublist
 		     finally (return sublist))
 		  res)))
     (nreverse res)))
+
+(defmethod group-list ((lst list) (segmentation integer) &optional (mode :linear))
+  (group-list lst (make-list (ceiling (length lst) segmentation) :initial-element segmentation) mode))
 ;;------------------------------------------------------------------
 (defmethod gnuplot> ((lst list) &key mlt (w 1200) (h 600) (scale 1) (fontsize 15) (gnuplot *gnuplot*))
   ;; i defines the time length and it is only for gnuplot graphic convenience.
@@ -536,11 +539,11 @@ which lengths are successive values of the list <segmentation>.
 	 (ord (ordinate (mapcar #'list (mapcar #'car rh) (normalize-sum (mapcar #'cadr rh))) #'> :key #'cadr))) 
     (case result
       (:history ord)
-      (:prob (loop for i in ord collect (list (cadr i) (car (last (car i))))))
+      (:prob (loop for i in ord collect (list (cadr i) (carlast (car i)))))
       (:verbose (loop for i in ord do
-		     (format t "~@<~S => ~3I~_~,6f %~:>~%" (car (last (if (singleton (car i)) (caar i) (car i)))) (* 100 (float (cadr i))))))
+		     (format t "~@<~S => ~3I~_~,6f %~:>~%" (carlast (if (singleton (car i)) (caar i) (car i))) (* 100 (float (cadr i))))))
       (:eval (when lw
-	       (multiple-value-bind (a b) (funcall compute (loop for i in ord collect (list (car (last (car i))) (cadr i))))
+	       (multiple-value-bind (a b) (funcall compute (loop for i in ord collect (list (carlast (car i)) (cadr i))))
 		 (values
 		  (if (singleton a) (car a) a) ;; the result itself 
 		  ;(length rh)                ;; number of potential candidat

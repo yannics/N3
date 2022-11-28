@@ -191,6 +191,7 @@ When the final value is superior to initial value, the function becomes increasi
 ;; one argument (probability-list)
 ;; key type (concern only self as problist when is set) ---> :random, :weighted, :inverse-weighted, max-weighted, min-weighted
 ;; key exclude ; exclude is a list of item(s)
+;; add key include ; include is a list of item(s)
 #|
 The problist has to be well-formed:
 (

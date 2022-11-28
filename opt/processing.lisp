@@ -16,7 +16,7 @@
 				       (loop for f in (fanaux-list (id s)) for j from 0
 					     collect
 					     (cons i (cons j (xpos (id f)))))))
-		      :csv t)
+		      :out :csv)
 	  (warn "~A does not exists!" dir)))))
 
 ;; writing data in ~/Documents/Processing/<folder>/

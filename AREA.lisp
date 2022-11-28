@@ -95,7 +95,7 @@
     (loop for i in (soms-list self) do (learn (id i) :seq seq))
     (setf (current-clique self)
 	  (loop for s in (soms-list self) collect
-	       (car (last (mct (id s))))))))
+	       (carlast (mct (id s)))))))
 
 ;------------------------------------------------------------------
 ;                                                   LEARNING (AREA)  
@@ -214,7 +214,7 @@ In others word, clique = (index_fanal_SOM1 index_fanal_SOM2 ...)."
 		(sort-clique (append el eds (group-edges edp)))
 		(sort-clique (append el eds))))
 	 (res (ordered-combinatorial-distribution (loop for i in r collect (if (listp (car i)) (mapcar #'car i) (car i)))))) 
-    (unless (integerp (car res)) (mapcar #'reverse (ordinate (group-list (loop for r in (mapcar #'list (get-weight self res :test test) res) unless (null (car r)) collect r) self) #'> :key #'cadr)))))
+    (unless (integerp (car res)) (mapcar #'reverse (group-list (loop for r in (mapcar #'list (get-weight self res :test test) res) unless (null (car r)) collect r) self)))))
 
 ;------------------------------------------------------------------
 ;                                            NEXT-EVENT-PROBABILITY
@@ -239,7 +239,7 @@ In others word, clique = (index_fanal_SOM1 index_fanal_SOM2 ...)."
 		   (t (loop for i in (mat-trans (if (eq :buffer opt) (butlast head) head)) for net in (soms-list self) collect (next-event-probability (unless (loop for qm in i always (eq '? qm)) i) (id net) :remanence remanence :result :prob :compute compute))))) ;; collect prob MLT 
 	     (r (when (loop for it in al never (null it))
 		  (if (eq :buffer opt)
-		      (loop for cli in (loop for c in (dispatch-combination (loop for l in al collect (mapcar #'cadr l))) append (mapcar #'cadr (locate-clique self c))) when (loop for a in cli for b in (car (last head)) always (or (eq a b) (eq b '?))) collect cli)
+		      (loop for cli in (loop for c in (dispatch-combination (loop for l in al collect (mapcar #'cadr l))) append (mapcar #'cadr (locate-clique self c))) when (loop for a in cli for b in (carlast head) always (or (eq a b) (eq b '?))) collect cli)
 		      (loop for c in (dispatch-combination (loop for l in al collect (mapcar #'cadr l))) append (mapcar #'cadr (locate-clique self c)))))) ;; collect possible clique from al result
 	     (prob-cli (group-list (mat-trans (list (get-weight self r) r)) self)) ;; normalised prob weighted cliques
 	     (prob-trn (mapcar #'cons (normalize-sum (loop for i in prob-cli collect (trns-prob (car i) al))) (mapcar #'butlast prob-cli))) ;; normalised prob cliques as product of prob of tournois
