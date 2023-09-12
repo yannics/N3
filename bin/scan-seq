@@ -6,10 +6,13 @@ filename=$(basename $1)
 rootname=$(echo "$filename" |cut -f1 -d '.')
 refname="+$rootname+" 
 
+# collect argument :NET in file .tmp.net
 awk '{for (I=1;I<NF;I++) if ($I == ":NET") print $(I+1)}' $1 > $dir/.tmp.net
 
+# replace ( -> space; ) -> space; multiple space -> one space; * -> +; ' -> space and save in file .tmp
 cat $1 | sed "s/(/\ /g;s/)/\ /g;s/  */\ /g;s/\*/+/g;s/\'/\ /g" > $dir/.tmp
 
+# read file .tmp and write file .tmp.var 
 IFS=$' ' read -r -a arr < $dir/.tmp
 
 for item in "${arr[@]}"; 
@@ -20,8 +23,11 @@ do
     fi
 done
 
+# identifying package
+# replace quote by space and grep all colon in file .tmp.1
 cat $dir/.tmp | sed "s/\'/\ /g" | grep -o '[^ ]*\:' > $dir/.tmp.1
 
+# collect package
 cat $dir/.tmp.1 | sed "s/\://g" | tr "\\n" " " | sed 's/  */\ /g' > $dir/.tmp.pak
 
 rm $dir/.tmp $dir/.tmp.1

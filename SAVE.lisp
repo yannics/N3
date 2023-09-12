@@ -94,7 +94,7 @@
         when (equalp item i)
         collect position))
 
-(defun load-neural-network (nn &optional kw) ;; kw :only-area, :copy :copy-only-area
+(defun load-neural-network (nn &optional kw) ;; kw -> :only-area :copy :copy-only-area :ignore-warning
   "nn is a string meaning neural network.
    Just write full pathname of nn
    [for instance /User/.../FOO.area as string];
@@ -112,12 +112,12 @@
 	      (nn (pathname-name (pathname file)))) 
 	  ;;[TODO] warning if net is not loaded when SOM/MLT
 	  (cond ((equalp tn "som") (if (member (id (read-from-string nn)) *ALL-SOM*)
-				       (warn "There is already a SOM called ~A in *ALL-SOM*. Consequently, this SOM has not been loaded." nn)
+				       (when (eq kw :ignore-warning) (warn "There is already a SOM called ~A in *ALL-SOM*. Consequently, this SOM has not been loaded." nn))
 				       (progn (load file)
 					      (format t "~45<~A.~(~a~) ...~;... ~A ...~>~%" nn tn sta))))
 		((equalp tn "area") (if (or (eq kw :only-area) (eq kw :copy-only-area))
 					(if (member (id (read-from-string nn)) *ALL-AREA*)
-					    (warn "There is already an AREA called ~A in *ALL-AREA*. Consequently, this AREA has not been loaded." nn)
+					    (when (eq kw :ignore-warning) (warn "There is already an AREA called ~A in *ALL-AREA*. Consequently, this AREA has not been loaded." nn))
 					    (progn (load file)
 						   (format t "~45<~A.~(~a~) ...~;... ~A ...~>~%" nn tn sta)))
 					(let* ((sl (let* ((in (open file))
@@ -137,12 +137,12 @@
 						(loop for s in sl do (load-neural-network (format nil "~A~S.som" dir s)))
 						(if (equalp (loop for l in il collect (if (null l) 0 l)) (loop for s in sl collect (length (fanaux-list (id s)))))
 						    (if (member (id (read-from-string nn)) *ALL-AREA*)
-							(warn "There is already an AREA called ~A in *ALL-AREA*. Consequently, this AREA has not been loaded." nn)
+							(when (eq kw :ignore-warning) (warn "There is already an AREA called ~A in *ALL-AREA*. Consequently, this AREA has not been loaded." nn))
 							(progn (load file)
 							       (format t "~45<~A.~(~a~) ...~;... ~A ...~>~%" nn tn sta)))
-						    (warn "There is no agreement between the fanaux-list of soms-list and the fanaux-length. This AREA can't be loaded.")))
-					      (warn "The file~A~{ ~A.som~} do~A not exist [at least in \"~A\"]. Consequently, this AREA can't be loaded." (if (= 1 (length lstest)) "" "s") (loop for i in lstest collect (nth i sl)) (if (= 1 (length lstest)) "es" "") (read-from-string dir)))))) 
-		(t (warn "This file is not identified as part of N3."))))
-	(warn "This file does not exist."))))
+						    (when (eq kw :ignore-warning) (warn "There is no agreement between the fanaux-list of soms-list and the fanaux-length. This AREA can't be loaded."))))
+					      (when (eq kw :ignore-warning) (warn "The file~A~{ ~A.som~} do~A not exist [at least in \"~A\"]. Consequently, this AREA can't be loaded." (if (= 1 (length lstest)) "" "s") (loop for i in lstest collect (nth i sl)) (if (= 1 (length lstest)) "es" "") (read-from-string dir))))))) 
+		(t (when (eq kw :ignore-warning) (warn "This file is not identified as part of N3.")))))
+	(when (eq kw :ignore-warning) (warn "This file does not exist.")))))
 
 ;------------------------------------------------------------------

@@ -44,10 +44,11 @@
 	   :*ALL-SEQUENCING*
 	   :CREATE-SEQUENCING
 	   :SET-CORPUS
-           :SET-PULSE
-           :SET-RULE
+           :SET-PATTERN
            :SET-ROUTINE
+	   :SET-RULE
            :SET-SUBROUTINE
+	   :SET-SYNC
            :ACT-ROUTINE
 	   :KILL-ROUTINE
 	   ))

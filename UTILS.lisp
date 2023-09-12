@@ -30,13 +30,54 @@
   (loop for i in (read-text-lines (expand-path (if (stringp file) file (namestring file)))) collect (string-to-list (string-trim '(#\Space #\Tab #\Newline) i))))
 
 ;------------------------------------------------------------------
+;                                        PRETTY PRINTING TABLE DATA
+
+;; https://gist.github.com/WetHat/a49e6f2140b401a190d45d31e052af8f
+(defconstant +CELL-FORMATS+ '(:left   "~vA"
+                              :center "~v:@<~A~>"
+                              :right  "~v@A"))
+
+(defun format-table (stream data &key
+				   (column-label (loop for i from 1 to (length (car data))
+                                                          collect (format nil "COL~D" i)))
+                                   (column-align (loop for i from 1 to (length (car data))
+                                                       collect :left)))
+  (let* ((col-count (length column-label))
+         (strtable  (cons column-label ; table header
+                          (loop for row in data ; table body with all cells as strings
+				collect (loop for cell in row
+                                              collect (if (stringp cell)
+                                                          cell
+					                  (format nil "~A" cell))))))
+         (col-widths (loop with widths = (make-array col-count :initial-element 0)
+                           for row in strtable
+                           do (loop for cell in row
+                                    for i from 0
+                                    do (setf (aref widths i)
+                                             (max (aref widths i) (length cell))))
+                           finally (return widths))))
+    ;----------------------------------------------------
+    ; splice in the header separator
+    (setq strtable
+          (nconc (list (car strtable) ; table header
+                       (loop for align in column-align ; generate separator
+                             for width across col-widths
+                             collect (format nil "~v@{~A~:*~}" width "-")))
+                 (cdr strtable))) ; table body
+    ;----------------------------------------------------
+    ; Generate the formatted table
+    (let ((row-fmt (format nil "| ~{~A~^ | ~} |~~%" ; compile the row format
+                           (loop for align in column-align
+				 collect (getf +CELL-FORMATS+ align))))
+          (widths  (loop for w across col-widths collect w)))
+					; write each line to the given stream
+      (dolist (row strtable)
+        (apply #'format stream row-fmt (mapcan #'list widths row))))))
+
+;------------------------------------------------------------------
 ;                                                             UTILS
 
 (defun version () (format t "~a" (asdf:component-version (asdf:find-system "n3"))))
-
-(defun convert-list-to-array (lst)
-  (with-output-to-string (stream)
-    (uiop:run-program (concatenate 'string "echo '" (format nil "~a" lst) "' | sed -e 's/\\ /, /g;s/(/[ /g;s/)/ ]/g' | awk '{print tolower(\$0)}'") :output stream)))
 
 (defun >thrifty-code (a digit &optional (key :left) (from 0)) ;; possible key are -> :left (default), :right, :mid (implies an odd digit number)
   (case key
@@ -257,6 +298,10 @@ Note that the output is clipped if the range of input is largest than values of 
 
 ;;;; ;; ;;  ; ;;;  ;; ;  ; ; ; ;   ;
 
+(defun convert-list-to-array (lst)
+  (with-output-to-string (stream)
+    (uiop:run-program (concatenate 'string "echo '" (format nil "~a" lst) "' | sed -e 's/\\ /, /g;s/(/[ /g;s/)/ ]/g' | awk '{print tolower(\$0)}'") :output stream)))
+
 (defun >data-file (path lst &key append out)
   "Allows to write data file (lst) to a file (path)."
   (let ((file (make-pathname
@@ -279,7 +324,7 @@ Note that the output is clipped if the range of input is largest than values of 
 which can be interpreted as a global variable defind by <name> prepended with a tilde."
   (let ((scdfile (namestring (make-pathname :directory (pathname-directory file) :name (if name (string name) (pathname-name file)) :type "scd"))))
     (uiop:run-program (concatenate 'string "paste -s -d, " (namestring file) " | sed -e '1s/^/(~" (if name (string name) (pathname-name file)) " = [/' > " scdfile " ; echo '])' >> " scdfile))))
-  
+
 ;;; ;;    ;  ; ;  ;;; ;  ;;  ;;; ;;    ;
 
 (defgeneric >dot (self nodes)

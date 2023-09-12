@@ -212,23 +212,23 @@ with sum of weight(i) = 1.0
 	    (setf nproblist (mapcar #'list (mapcar #'car npl) (normalize-sum (mapcar #'cadr npl)))))
 	  (setf nproblist self))      
       (case type
-	(:random 
+	(:random ; or :rnd
 	 (values (car (nth (random (length nproblist)) nproblist)) (/ 1 (length nproblist))))
-	(:weighted 
+	(:weighted ; or :w
 	 (loop for i in (mapcar #'cadr nproblist) do (push (+ (car r) i) r))
 	 (let ((res (nth (1- (length (loop for i in (reverse r) while (> (- 1 (random 1.0)) i) collect i))) nproblist)))
 	   (values (car res) (cadr res))))
-	(:inverse-weighted 
+	(:inverse-weighted ; or :iw
 	 (loop for i in (normalize-sum (loop for i in (mapcar #'cadr nproblist) collect (- 1.0 i))) do (push (+ (car r) i) r))
 	 (let ((res (nth (1- (length (loop for i in (reverse r) while (> (- 1 (random 1.0)) i) collect i))) nproblist)))
 	   (values (car res) (cadr res))))
-	(:max-weighted 
+	(:max-weighted ; or :max
 	 (when nproblist
 	   (let* ((al (ordinate (mat-trans (list (car (mat-trans nproblist)) (cadr (mat-trans nproblist)))) #'> :key #'cadr))
 		  (tmp (cons (car al) (loop for i in (cdr al) until (< (cadr i) (cadr (car al))) collect i)))
 		  (res (nth (random (length tmp)) tmp)))
 	     (values (car res) (cadr res)))))
-	(:min-weighted 
+	(:min-weighted ; or :min
 	 (when nproblist
 	   (let* ((al (ordinate (mat-trans (list (car (mat-trans nproblist)) (cadr (mat-trans nproblist)))) #'< :key #'cadr))
 		  (tmp (cons (car al) (loop for i in (cdr al) until (> (cadr i) (cadr (car al))) collect i)))
@@ -275,6 +275,16 @@ with sum of weight(i) = 1.0
 	  (setf nproblist (mapcar #'list (mapcar #'car npl) (normalize-sum (mapcar #'cadr npl)))))
 	(setf nproblist problist))
     (loop for i in (mapcar #'cadr nproblist) do (push (+ (car r) i) r))
+    (let ((res (nth (1- (length (loop for i in (reverse r) while (> (- 1 (random 1.0)) i) collect i))) nproblist)))
+      (values (car res) (cadr res)))))
+
+(defun inverse-weighted (problist &key exclude)
+  (let (nproblist (r '(0)))
+    (if exclude
+	(let ((npl (loop for i in problist unless (member (car i) exclude :test #'equalp) collect i)))
+	  (setf nproblist (mapcar #'list (mapcar #'car npl) (normalize-sum (mapcar #'cadr npl)))))
+	(setf nproblist problist))
+    (loop for i in (normalize-sum (loop for i in (mapcar #'cadr nproblist) collect (- 1.0 i))) do (push (+ (car r) i) r))
     (let ((res (nth (1- (length (loop for i in (reverse r) while (> (- 1 (random 1.0)) i) collect i))) nproblist)))
       (values (car res) (cadr res)))))
 

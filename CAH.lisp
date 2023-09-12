@@ -101,6 +101,7 @@
   ;; output leaves list
   *memcache1*)
 
+;; http://cl-cookbook.sourceforge.net/strings.html
 (defun replace-all (string part replacement &key (test #'char=))
   "Returns a new string in which all the occurences of the part 
 is replaced with replacement."
