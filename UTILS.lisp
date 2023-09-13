@@ -60,7 +60,7 @@
     ; splice in the header separator
     (setq strtable
           (nconc (list (car strtable) ; table header
-                       (loop for align in column-align ; generate separator
+                       (loop ; generate separator
                              for width across col-widths
                              collect (format nil "~v@{~A~:*~}" width "-")))
                  (cdr strtable))) ; table body
