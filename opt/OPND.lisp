@@ -15,8 +15,6 @@ Each element is itself a list, with the format (o p d v) where o is the onset ti
 ...
 |#
 
-(defparameter *notename* '("C" "" "D" "" "E" "F" "" "G" "" "A" "" "B"))
-
 (defun asa2midi (asa)
   (let* ((lst (loop for i in (coerce (string asa) 'list) collect (if (digit-char-p i) (digit-char-p i) (string i))))
 	 (al (remove "N" (butlast (cdr lst)) :test #'equalp))

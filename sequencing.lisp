@@ -89,7 +89,7 @@
   (let ((seq (car *all-sequencing*)))
     (setf (dub seq) (if dub (read-from-string (string dub)) (read-from-string (format nil "*untitled-~S*" (get-universal-time)))))
     (when (stringp description) (setf (description seq) description))
-    (when (or (mlt-p (id net)) (area-p (id net))) (setf (net seq) net))
+    (when (or (mlt-p (id net)) (area-p (id net))) (setf (net seq) (id net)))
     (when (integerp buffer-size) (setf (buffer-size seq) buffer-size))
     (when (integerp buffer-thres) (setf (buffer-thres seq) buffer-thres))
     (when (numberp pulse) (setf (pulse seq) pulse))
@@ -211,7 +211,8 @@ funcs take a sequencing class as argument -- conventionally named self"
 	   (setf (routine ,self)
 		 (lambda* (self)
 		   (loop do
-		     (if (<= (length (buffer-out self)) (buffer-size self)) ,@funcs (sleep *latency*))))
+		     (when (<= (length (buffer-out self)) (buffer-size self)) ,@funcs)
+		     (sleep *latency*)))
 		 (gethash 'compute (mem-cache ,self))
 		 (_make-thread (routine ,self) ,self))
 	   (format t "OSC will send message as /~A at ~A:~S~&" (read-from-string (remove #\/ (string (tag ,self)))) (ip ,self) (port ,self)))))
@@ -228,7 +229,7 @@ funcs take a sequencing class as argument -- conventionally named self"
 			 (let ((div (/ (* (pulse (id (sync self))) (meter self)) +beat+ *latency*)))
 			   (= (mod (- div (/ (anacrusis self) +beat+ *latency*)) div)
 			      (mod (- +clock+ (gethash 'init-clock (mem-cache (id (sync self))))) div)))
-			 (>= +clock+ (gethash 'next-pulse (mem-cache self)))))  
+			 (>= +clock+ (gethash 'next-pulse (mem-cache self)))))
 		    ;; SEND EVENT
 		    (when *debug*
 		      (format t "~S -> /~S 1 ~{~S ~}~&" (dub self)
@@ -241,9 +242,13 @@ funcs take a sequencing class as argument -- conventionally named self"
 			      (read-from-string (remove #\/ (string (tag self))))
 			      (append (bo self (gethash 'ind (mem-cache self))) (list (/ (* 1.0 (1+ (bo self 0))) (pulse self) +beat+))))) 
 		     (ip self) (port self))
+		    ;; TO THIRDPART
+		    (when (and *thirdpart* (gethash 'thirdpart (mem-cache self))) (mapcar #'funcall (gethash 'thirdpart (mem-cache self)) self))		    
 		    ;; SET INIT-CLOCK
 		    (unless (gethash 'init-clock (mem-cache self))
-		      (setf (gethash 'init-clock (mem-cache self)) +clock+ (gethash 'next-pulse (mem-cache self)) +clock+)
+		      (setf
+		       (gethash 'init-clock (mem-cache self)) +clock+
+		       (gethash 'next-pulse (mem-cache self)) +clock+)
 		      (when (and *debug* (not (sync self))) (format t "~S -> init [~S]~&" (dub self) +clock+)))
 		    ;; SET NEXT-PULSE
 		    (setf (gethash 'next-pulse (mem-cache self)) (+ (gethash 'next-pulse (mem-cache self)) (/ (* 1.0 (1+ (bo self 0))) (* (pulse self) +beat+ *latency*))))
@@ -398,7 +403,7 @@ funcs take a sequencing class as argument -- conventionally named self"
 			  (eq s (read-from-string "BUFFER-OUT")))
 		      (format stream ""))
 		     ((eq s (read-from-string "SYNC"))
-		      (format stream " :~S ~S" s (dub val)))
+		      (format stream " :~S ~S" s (when (sequencing-p (id val)) (dub (id val)))))
 		     ((or (eq 'SYMBOL (type-of (id val)))
 			  (eq 'SYMBOL (type-of val))
 			  (eq s (read-from-string "DUB"))
@@ -411,6 +416,11 @@ funcs take a sequencing class as argument -- conventionally named self"
 	  (if (gethash 'corpus (mem-cache self))
 	    (format stream " (SET-CORPUS ~S ~S)" (dub self) (gethash 'corpus (mem-cache self)))  
 	    (format stream " (SET-CORPUS ~S :LOAD)" (dub self))))
+	;----------------
+	(when (gethash 'thirdpart (mem-cache self))
+	  (loop for fn in (gethash 'thirdpart (mem-cache self))
+		do (when (ml? fn) (format stream "(PUSH ~S (GETHASH 'THIRDPART (MEM-CACHE ~S)))" (ml! (gethash 'processing (mem-cache self))) (dub self)))))
+	;----------------
 	(when (gethash 'ind (mem-cache self)) (format stream "(SETF (GETHASH 'IND (MEM-CACHE ~S)) ~S)" (dub self) (gethash 'ind (mem-cache self))))
 	(when (pattern self) (format stream "(SETF (GETHASH 'PATTERN-COUNTER (MEM-CACHE ~S)) 0)" (dub self)))
 	(when (routine self) (format stream " (SETF (GETHASH 'COMPUTE (MEM-CACHE ~S)) (_MAKE-THREAD (ROUTINE ~S) ~S))" (dub self) (dub self) (dub self)))))
@@ -444,10 +454,12 @@ in order to warn if one of them is unbound."
       (progn (mapcar #'eval res) nil)
       (if (boundp refname)
 	  (format t "~A[~A] already loaded!~&" (name (id refname)) (dub (id refname)))
-	  (progn (load file) (format t "~45<~A[~A] ...~;... ~A ...~>~%"
-				     (name (car *all-sequencing*))
-				     (dub (car *all-sequencing*))
-				     (if copy "copied" "loaded"))))))
+	  (progn
+	    (load file)
+	    (format t "~45<~A[~A] ...~;... ~A ...~>~%"
+		    (name (car *all-sequencing*))
+		    (dub (car *all-sequencing*))
+		    (if copy "copied" "loaded"))))))
 
 (defun load-sequencing (seq)
   (let ((file (if (zerop (length (directory-namestring (pathname (string seq)))))
@@ -472,6 +484,22 @@ in order to warn if one of them is unbound."
 		(scan-seq (concatenate 'string *N3-BACKUP-DIRECTORY* (string (car (split-symbol (nth (- i 1) items)))) ".seq"))))
 	    (when (and (integerp val) (<= val (length items)) (> val 0))
 	      (scan-seq (concatenate 'string *N3-BACKUP-DIRECTORY* (string (car (split-symbol (nth (- val 1) items)))) ".seq"))))))))
+
+(defun load-optional () ;(load (concatenate 'string *NEUROMUSE3-DIRECTORY* "opt/" (string filename) ".lisp"))
+  (let* ((stdout (format nil "~a" (UIOP:run-program (format nil "sh -c 'cd ~S; for f in *.lisp; do echo $f; done'" (concatenate 'string *NEUROMUSE3-DIRECTORY* "opt/")) :output :string)))
+	 (items (string-to-list stdout)))
+    (when items
+      (format t ";---------------")
+      (dotimes (item-number (length items))
+	(format t "~%~A: ~A" (+ item-number 1) (string (car (split-symbol (nth item-number items))))))
+      (format t "~%Load (Type any key to escape): ")
+      (let ((val (read)))
+	(if (listp val)
+	    (loop for i in val do 
+	      (when (and (integerp i) (<= i (length items)) (> i 0))
+		(load (concatenate 'string  *NEUROMUSE3-DIRECTORY* "opt/" (string (car (split-symbol (nth (- i 1) items)))) ".lisp"))))
+	    (when (and (integerp val) (<= val (length items)) (> val 0))
+	      (load (concatenate 'string  *NEUROMUSE3-DIRECTORY* "opt/" (string (car (split-symbol (nth (- val 1) items)))) ".lisp"))))))))
 
 ;------------------------------------------------------------------
 ;                                                           COMPUTE   
@@ -500,3 +528,4 @@ in order to warn if one of them is unbound."
 (defconstant MLT (make-instance 'mlt))
 (format t "; MLT default functions:~&; DISTANCE-IN: ~S~&; DISTANCE-OUT: ~S~&; VOISINAGE: ~S~&; CARTE: ~S~&" (DISTANCE-IN MLT) (DISTANCE-OUT MLT) (VOISINAGE MLT) (CARTE MLT))
 ;;++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+

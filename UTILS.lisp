@@ -3,6 +3,7 @@
 
 (in-package :N3)
 (defvar *debug* nil)
+(defparameter *notename* '("C" "C#" "D" "Eb" "E" "F" "F#" "G" "G#" "A" "Bb" "B"))
 
 ;------------------------------------------------------------------
 ;                                                    READ-DATA-FILE
@@ -76,6 +77,10 @@
 
 ;------------------------------------------------------------------
 ;                                                             UTILS
+
+(defun list! (obj) (if (listp obj) obj (list obj)))
+
+(defun n-first (n lst) (if (> n (length lst)) lst (subseq lst 0 n)))
 
 (defun version () (format t "~a" (asdf:component-version (asdf:find-system "n3"))))
 

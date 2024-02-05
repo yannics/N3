@@ -6,10 +6,10 @@
 (defsystem N3
   :name "N3"
   :author "Yann Ics"
-  :licence "Copyleft 2013/2023 - all wrongs reserved"
+  :licence "Copyleft 2013/2024 - all wrongs reserved"
   :maintainer "<by.cmsc@gmail.com>"
   :description "Neuromuse3 - <https://www.overleaf.com/read/wswcpgqntjrc>"
-  :version "3.0.23"
+  :version "3.0.24"
   :components ((:file "package")
       	       (:file "SOM")
 	       (:file "MLT")
