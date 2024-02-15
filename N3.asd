@@ -8,7 +8,7 @@
   :author "Yann Ics"
   :licence "Copyleft 2013/2024 - all wrongs reserved"
   :maintainer "<by.cmsc@gmail.com>"
-  :description "Neuromuse3 - <https://www.overleaf.com/read/wswcpgqntjrc>"
+  :description "Neuromuse3 - <https://github.com/yannics/Neuromuse3/blob/master/n3.pdf>"
   :version "3.0.24"
   :components ((:file "package")
       	       (:file "SOM")
