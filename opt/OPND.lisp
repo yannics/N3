@@ -71,3 +71,5 @@ Each element is itself a list, with the format (o p d v) where o is the onset ti
 ;; (defparameter +corpus+ (flat-once (mapcar #'map-opnd (directory "~/opnd-files/*-mel.opnd"))))
 
 ;------------------------------------------------------------------
+
+(format t "---> OPND.lisp loaded")

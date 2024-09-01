@@ -225,7 +225,7 @@ funcs take a sequencing class as argument -- conventionally named self"
 		   ((and
 		     (>= (length (buffer-out self)) (buffer-thres self))
 		     (not (gethash 'subroutine-state (mem-cache self)))
-		     (if (and (sync self) (not (gethash 'init-clock (mem-cache self))))
+		     (if (and (sequencing-p (id (sync self))) (gethash 'routine (mem-cache (sync self))) (not (gethash 'init-clock (mem-cache self))))
 			 (let ((div (/ (* (pulse (id (sync self))) (meter self)) +beat+ *latency*)))
 			   (= (mod (- div (/ (anacrusis self) +beat+ *latency*)) div)
 			      (mod (- +clock+ (gethash 'init-clock (mem-cache (id (sync self))))) div)))
@@ -241,9 +241,7 @@ funcs take a sequencing class as argument -- conventionally named self"
 		      (format nil "(\"/~S\" \"1\" ~{\"~S\"~})"
 			      (read-from-string (remove #\/ (string (tag self))))
 			      (append (bo self (gethash 'ind (mem-cache self))) (list (/ (* 1.0 (1+ (bo self 0))) (pulse self) +beat+))))) 
-		     (ip self) (port self))
-		    ;; TO THIRDPART
-		    (when (and *thirdpart* (gethash 'thirdpart (mem-cache self))) (mapcar #'funcall (gethash 'thirdpart (mem-cache self)) self))		    
+		     (ip self) (port self))		    		    
 		    ;; SET INIT-CLOCK
 		    (unless (gethash 'init-clock (mem-cache self))
 		      (setf
@@ -416,10 +414,6 @@ funcs take a sequencing class as argument -- conventionally named self"
 	  (if (gethash 'corpus (mem-cache self))
 	    (format stream " (SET-CORPUS ~S ~S)" (dub self) (gethash 'corpus (mem-cache self)))  
 	    (format stream " (SET-CORPUS ~S :LOAD)" (dub self))))
-	;----------------
-	(when (gethash 'thirdpart (mem-cache self))
-	  (loop for fn in (gethash 'thirdpart (mem-cache self))
-		do (when (ml? fn) (format stream "(PUSH ~S (GETHASH 'THIRDPART (MEM-CACHE ~S)))" (ml! (gethash 'processing (mem-cache self))) (dub self)))))
 	;----------------
 	(when (gethash 'ind (mem-cache self)) (format stream "(SETF (GETHASH 'IND (MEM-CACHE ~S)) ~S)" (dub self) (gethash 'ind (mem-cache self))))
 	(when (pattern self) (format stream "(SETF (GETHASH 'PATTERN-COUNTER (MEM-CACHE ~S)) 0)" (dub self)))

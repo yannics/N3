@@ -586,3 +586,54 @@ which lengths are successive values of the list <segmentation>.
 
 ;;------------------------------------------------------------------
 
+; see 1.4 Discrimination in classes
+; in GSA (chapter 1 - Documentation of the executable script enkode)
+;;==================================================================
+;;                         CLASSIFICATION
+;;==================================================================
+
+;; a recursive discrimination
+
+(defmethod nearest ((self number) (n list) &key n-list d-list diss-fun)
+  (declare (ignore n-list d-list diss-fun))
+  (let ((al (sort (copy-tree n) #'>)))
+    (cadar (sort (loop for i in al collect (list (abs (- i self)) i)) #'< :key #'car))))
+
+(defvar *alist* nil)
+
+(defun asinteger (lst)
+  (let* ((al (sort (copy-tree (remove-duplicates lst)) #'<))
+	 (alst (loop for n in al for pos from 1 collect (list n pos))))
+    (push al *alist*)
+    (mapcar #'cadr (loop for i in lst collect (assoc i alst)))))
+
+(defun mean-class (lst)
+  (if (listp (car lst))
+      (list (mean (mapcar #'car lst)) (mean (mapcar #'cadr lst)))
+      (mean lst)))
+
+(defun split-mean-lst (lst)
+  (if (= 1 (length (remove-duplicates lst)))
+      (list lst (list lst))
+      (let* ((m (mean-class lst))
+	     (subsup (loop for i in lst when (> i m) collect i))
+	     (subinf (loop for i in lst when (<= i m) collect i))
+	     (msup (when subsup (mean-class subsup)))
+	     (minf (when subinf (mean-class subinf))))
+	(if (or (null msup) (null minf))
+	    (list lst (list lst))
+	    (list (list minf m msup) (list subinf subsup))))))
+
+(defun mk-attract (lst n &optional r)
+  (if (< (length (remove-duplicates lst)) (1- (expt 2 n))) (mk-attract lst (1- n))
+      (if (>= (length (car r)) (1- (expt 2 n))) (sort (car r) #'>)
+	  (let ((ll (loop for i in (if (null r) (list lst) (cadr r)) collect (split-mean-lst i))))
+	    (mk-attract lst n (list (remove-duplicates (union (flat-once (mapcar #'car ll)) (car r))) (flat-once (mapcar #'cadr ll))))))))
+
+(defun mk-attract-class (data coef)
+  (setf *alist* nil)
+  (let* ((ma1 (mk-attract data (if (floatp coef) (ceiling coef) coef)))
+	 (ma2 (if (floatp coef) (loop for pos from 0 to (1- (length ma1)) when (evenp pos) collect (nth pos ma1)) ma1)))
+    (asinteger (loop for i in data collect (nearest i ma2)))))
+
+;;------------------------------------------------------------------

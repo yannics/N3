@@ -9,7 +9,7 @@
   :licence "Copyleft 2013/2024 - all wrongs reserved"
   :maintainer "<by.cmsc@gmail.com>"
   :description "Neuromuse3 - <https://github.com/yannics/Neuromuse3/blob/master/n3.pdf>"
-  :version "3.0.24"
+  :version "3.0.25"
   :components ((:file "package")
       	       (:file "SOM")
 	       (:file "MLT")
