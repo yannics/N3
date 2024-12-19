@@ -541,7 +541,7 @@ which lengths are successive values of the list <segmentation>.
       (:history ord)
       (:prob (loop for i in ord collect (list (cadr i) (carlast (car i)))))
       (:verbose (loop for i in ord do
-		     (format t "~@<~S => ~3I~_~,6f %~:>~%" (carlast (if (singleton (car i)) (caar i) (car i))) (* 100 (float (cadr i))))))
+		     (format t "~@<~S => ~3I~_~,6f %~:>~%" (if (singleton (car i)) (caar i) (car i)) (* 100 (float (cadr i))))))
       (:eval (when lw
 	       (multiple-value-bind (a b) (funcall compute (loop for i in ord collect (list (carlast (car i)) (cadr i))))
 		 (values
